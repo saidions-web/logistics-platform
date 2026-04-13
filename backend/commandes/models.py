@@ -1,7 +1,7 @@
 import uuid
 from decimal import Decimal
 from django.db import models
-from django.utils import timezone
+
 from accounts.models import CustomUser, EntrepriseProfile
 
 
@@ -17,7 +17,6 @@ class StatutCommande(models.TextChoices):
 class TypeLivraison(models.TextChoices):
     STANDARD    = 'standard',    'Standard'
     EXPRESS     = 'express',     'Express'
-    
 
 
 GOUVERNORATS = [
@@ -44,15 +43,20 @@ class Commande(models.Model):
     entreprise = models.ForeignKey(
         EntrepriseProfile,
         on_delete=models.SET_NULL,
-        null=True, blank=True,
+        null=True,
+        blank=True,
         related_name='commandes'
     )
 
-    dest_nom = models.CharField(max_length=100)
-    dest_prenom = models.CharField(max_length=100)
-    dest_telephone = models.CharField(max_length=20)
-    dest_adresse = models.TextField()
+    # Adresse de destination
+    dest_nom         = models.CharField(max_length=100)
+    dest_prenom      = models.CharField(max_length=100)
+    dest_telephone   = models.CharField(max_length=20)
+    dest_adresse     = models.TextField()
     dest_gouvernorat = models.CharField(max_length=50, choices=GOUVERNORATS)
+
+    dest_latitude    = models.FloatField(null=True, blank=True)
+    dest_longitude   = models.FloatField(null=True, blank=True)
 
     type_livraison = models.CharField(
         max_length=20,
@@ -61,7 +65,8 @@ class Commande(models.Model):
     )
 
     montant_a_collecter = models.DecimalField(max_digits=10, decimal_places=3)
-    prix_livraison = models.DecimalField(max_digits=10, decimal_places=3, default=Decimal('0'))
+    prix_livraison      = models.DecimalField(max_digits=10, decimal_places=3, default=Decimal('0'))
+
     statut = models.CharField(
         max_length=20,
         choices=StatutCommande.choices,
@@ -73,13 +78,13 @@ class Commande(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def calcul_prix_livraison(self):
+        """Calcul du prix selon la grille tarifaire de l'entreprise"""
         from tarif.models import Tarif
         from decimal import Decimal as D
-        
-        # Si pas d'entreprise, retourner 0 (sera recalculé après assignation)
+
         if not self.entreprise:
             return D('0')
-        
+
         poids = self.poids_total or D('0')
 
         tarif = Tarif.objects.filter(
@@ -89,22 +94,25 @@ class Commande(models.Model):
             poids_max__gte=poids
         ).first()
 
-        # Si pas de tarif, retourner 10 TND par défaut (fallback)
         if not tarif:
-            return D('10')
-        
+            return D('10')   # tarif par défaut
+
         prix = D(str(tarif.prix))
         if self.type_livraison == TypeLivraison.EXPRESS:
             prix += D('5')
         if self.colis.filter(fragile=True).exists():
             prix += D('2')
+
         return prix
 
     def save(self, *args, **kwargs):
         if not self.reference:
             self.reference = f"CMD-{uuid.uuid4().hex[:8].upper()}"
-        if not self.prix_livraison or self.prix_livraison == Decimal('0'):
+
+        # On recalcule le prix UNIQUEMENT si la commande est déjà sauvegardée (pk existe)
+        if self.pk and self.prix_livraison == Decimal('0'):
             self.prix_livraison = self.calcul_prix_livraison()
+
         super().save(*args, **kwargs)
 
     @property

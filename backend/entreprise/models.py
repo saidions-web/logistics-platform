@@ -1,19 +1,11 @@
 from django.db import models
-from django.utils import timezone
 from accounts.models import CustomUser, EntrepriseProfile
-from commandes.models import Commande, StatutCommande, GOUVERNORATS
+from commandes.models import StatutCommande
 
 
 # ─────────────────────────────────────────
 # CONSTANTES
 # ─────────────────────────────────────────
-
-class StatutTournee(models.TextChoices):
-    PLANIFIEE = 'planifiee', 'Planifiée'
-    EN_COURS  = 'en_cours',  'En cours'
-    TERMINEE  = 'terminee',  'Terminée'
-    ANNULEE   = 'annulee',   'Annulée'
-
 
 class StatutLivreur(models.TextChoices):
     DISPONIBLE = 'disponible', 'Disponible'
@@ -22,7 +14,7 @@ class StatutLivreur(models.TextChoices):
 
 
 # ─────────────────────────────────────────
-# 1. LIVREUR
+# LIVREUR
 # ─────────────────────────────────────────
 
 class Livreur(models.Model):
@@ -70,6 +62,7 @@ class Livreur(models.Model):
     latitude          = models.FloatField(null=True, blank=True)
     longitude         = models.FloatField(null=True, blank=True)
     derniere_position = models.DateTimeField(null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -87,113 +80,5 @@ class Livreur(models.Model):
 
     @property
     def nb_tournees_actives(self):
-        return self.tournees.filter(statut=StatutTournee.EN_COURS).count()
-
-
-# ─────────────────────────────────────────
-# 2. TOURNÉE
-# ─────────────────────────────────────────
-
-class Tournee(models.Model):
-    """
-    Tournée de livraison assignée à un livreur.
-    Regroupe plusieurs commandes à livrer.
-    """
-    entreprise = models.ForeignKey(
-        EntrepriseProfile,
-        on_delete=models.CASCADE,
-        related_name='tournees',
-        verbose_name="Entreprise"
-    )
-    livreur = models.ForeignKey(
-        Livreur,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='tournees',
-        verbose_name="Livreur"
-    )
-
-    reference = models.CharField(
-        max_length=20, unique=True, editable=False,
-        verbose_name="Référence tournée"
-    )
-
-    date_prevue = models.DateField(verbose_name="Date prévue")
-    heure_depart = models.TimeField(null=True, blank=True, verbose_name="Heure de départ")
-
-    zone_gouvernorat = models.CharField(
-        max_length=50, choices=GOUVERNORATS,
-        verbose_name="Zone principale"
-    )
-
-    statut = models.CharField(
-        max_length=20,
-        choices=StatutTournee.choices,
-        default=StatutTournee.PLANIFIEE,
-        verbose_name="Statut"
-    )
-
-    notes = models.TextField(blank=True, verbose_name="Notes")
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        verbose_name        = "Tournée"
-        verbose_name_plural = "Tournées"
-        ordering            = ['-date_prevue']
-
-    def save(self, *args, **kwargs):
-        if not self.reference:
-            import uuid
-            self.reference = f"TRN-{uuid.uuid4().hex[:6].upper()}"
-        super().save(*args, **kwargs)
-
-    def __str__(self):
-        return f"{self.reference} — {self.zone_gouvernorat} ({self.date_prevue})"
-
-    @property
-    def nb_commandes(self):
-        return self.affectations.count()
-
-    @property
-    def nb_livrees(self):
-        return self.affectations.filter(
-            commande__statut=StatutCommande.LIVREE
-        ).count()
-
-
-# ─────────────────────────────────────────
-# 3. AFFECTATION COMMANDE → TOURNÉE
-# ─────────────────────────────────────────
-
-class AffectationCommande(models.Model):
-    """
-    Lie une commande à une tournée.
-    Permet de suivre l'ordre de livraison.
-    """
-    tournee  = models.ForeignKey(
-        Tournee,
-        on_delete=models.CASCADE,
-        related_name='affectations',
-        verbose_name="Tournée"
-    )
-    commande = models.ForeignKey(
-        Commande,
-        on_delete=models.CASCADE,
-        related_name='affectations',
-        verbose_name="Commande"
-    )
-    ordre    = models.PositiveSmallIntegerField(default=1, verbose_name="Ordre de livraison")
-    notes    = models.TextField(blank=True, verbose_name="Notes")
-
-    affectee_le = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        verbose_name        = "Affectation"
-        verbose_name_plural = "Affectations"
-        ordering            = ['tournee', 'ordre']
-        unique_together     = ['tournee', 'commande']
-
-    def __str__(self):
-        return f"{self.tournee.reference} → {self.commande.reference} (#{self.ordre})"
+        # On utilise une string pour éviter le circular import avec l'app 'tournees'
+        return self.tournees.filter(statut='en_cours').count()

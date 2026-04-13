@@ -55,9 +55,7 @@ def get_stats(entreprise):
     }
 
 
-# ───────────────────────────────────────────────
-# ENTREPRISES ELIGIBLES (CORRIGÉ)
-# ───────────────────────────────────────────────
+
 def get_eligibles(commande):
     gouvernorat = (commande.dest_gouvernorat or "").strip()
     poids = float(commande.poids_total or commande.poids or 0)

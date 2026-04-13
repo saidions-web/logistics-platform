@@ -67,7 +67,6 @@ class RegisterVendeurSerializer(serializers.Serializer):
     def validate_phone(self, value):
         if value:
             tel = value.replace(' ', '').replace('-', '').replace('.', '')
-            # Téléphone tunisien : +216 XX XXX XXX ou 0X XXX XXX (8 chiffres)
             if not re.match(r'^(\+216|0|216)?[0-9]{8}$', tel):
                 raise serializers.ValidationError("Le numéro doit être au format tunisien avec 8 chiffres (ex: 0X XXX XXX ou +216 XX XXX XXX)")
         return value.strip() if value else ''
@@ -205,7 +204,6 @@ class RegisterEntrepriseSerializer(serializers.Serializer):
     def validate_phone(self, value):
         if value:
             tel = value.replace(' ', '').replace('-', '').replace('.', '')
-            # Téléphone tunisien : +216 XX XXX XXX ou 0X XXX XXX (8 chiffres)
             if not re.match(r'^(\+216|0|216)?[0-9]{8}$', tel):
                 raise serializers.ValidationError("Le numéro doit être au format tunisien avec 8 chiffres (ex: 0X XXX XXX ou +216 XX XXX XXX)")
         return value.strip() if value else ''
@@ -268,7 +266,6 @@ class RegisterEntrepriseSerializer(serializers.Serializer):
         if not value or not value.strip():
             raise serializers.ValidationError("Le téléphone du responsable est requis")
         tel = value.replace(' ', '').replace('-', '').replace('.', '')
-        # Téléphone tunisien : +216 XX XXX XXX ou 0X XXX XXX (8 chiffres)
         if not re.match(r'^(\+216|0|216)?[0-9]{8}$', tel):
             raise serializers.ValidationError("Le numéro doit être au format tunisien avec 8 chiffres (ex: 0X XXX XXX ou +216 XX XXX XXX)")
         return value.strip()
@@ -328,7 +325,7 @@ class RegisterEntrepriseSerializer(serializers.Serializer):
 
 
 # ─────────────────────────────────────────
-# 3. LOGIN
+# 3. LOGIN — CORRIGÉ ✅
 # ─────────────────────────────────────────
 
 from django.contrib.auth import authenticate
@@ -338,21 +335,38 @@ class LoginSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True)
 
     def validate(self, data):
-        email    = data.get('email').lower()
-        password = data.get('password')
+        email    = data.get('email', '').lower().strip()
+        password = data.get('password', '')
+
+        # ── Cas livreur : bypass authenticate() ──
+        # Les livreurs ont un email @logisync.local généré automatiquement
+        # et is_email_verified=True forcé à la création.
+        try:
+            user = CustomUser.objects.get(email=email)
+            if user.role == 'livreur':
+                if not user.is_active:
+                    raise serializers.ValidationError("Ce compte a été désactivé.")
+                if not user.check_password(password):
+                    raise serializers.ValidationError("Email ou mot de passe incorrect.")
+                data['user'] = user
+                return data
+        except CustomUser.DoesNotExist:
+            pass
+
+        # ── Cas standard : vendeur / entreprise ──
         user = authenticate(username=email, password=password)
+
         if not user:
             raise serializers.ValidationError("Email ou mot de passe incorrect.")
-        if not user.is_email_verified:
-            raise serializers.ValidationError("Veuillez vérifier votre email avant de vous connecter.")
         if not user.is_active:
             raise serializers.ValidationError("Ce compte a été désactivé.")
+        if not user.is_email_verified:
+            raise serializers.ValidationError("Veuillez vérifier votre email avant de vous connecter.")
+
         data['user'] = user
         return data
-
-
 # ─────────────────────────────────────────
-# 4. MOT DE PASSE OUBLIÉ — DEMANDE        ← NOUVEAU
+# 4. MOT DE PASSE OUBLIÉ — DEMANDE
 # ─────────────────────────────────────────
 
 class ForgotPasswordSerializer(serializers.Serializer):
@@ -378,7 +392,7 @@ class ForgotPasswordSerializer(serializers.Serializer):
             self._send_reset_email(user, token)
 
         except CustomUser.DoesNotExist:
-            pass  # Sécurité : ne pas révéler que l'email n'existe pas
+            pass
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"Échec reset password pour {email} : {e}")
@@ -402,7 +416,7 @@ class ForgotPasswordSerializer(serializers.Serializer):
 
 
 # ─────────────────────────────────────────
-# 5. MOT DE PASSE OUBLIÉ — RESET          ← NOUVEAU
+# 5. MOT DE PASSE OUBLIÉ — RESET
 # ─────────────────────────────────────────
 
 class ResetPasswordSerializer(serializers.Serializer):
@@ -433,11 +447,9 @@ class ResetPasswordSerializer(serializers.Serializer):
         token = PasswordResetToken.objects.get(token=token_value)
         user  = token.user
 
-        # Mettre à jour le mot de passe
         user.set_password(new_password)
         user.save()
 
-        # Invalider le token
         token.is_used = True
         token.save()
 
@@ -459,8 +471,6 @@ class UpdateProfileSerializer(serializers.Serializer):
     phone      = serializers.CharField(max_length=20,  required=False, allow_blank=True)
 
     def update(self, instance, validated_data):
-        # instance = le user connecté (request.user)
-        # On met à jour uniquement les champs envoyés
         instance.first_name = validated_data.get('first_name', instance.first_name)
         instance.last_name  = validated_data.get('last_name',  instance.last_name)
         instance.phone      = validated_data.get('phone',      instance.phone)
@@ -483,19 +493,16 @@ class ChangePasswordSerializer(serializers.Serializer):
     confirm_password = serializers.CharField(write_only=True)
 
     def validate_old_password(self, value):
-        # Vérifier que l'ancien mot de passe est correct
         user = self.context['request'].user
         if not user.check_password(value):
             raise serializers.ValidationError("Mot de passe actuel incorrect.")
         return value
 
     def validate_new_password(self, value):
-        # Vérifier que le nouveau mot de passe respecte les règles Django
         validate_password(value)
         return value
 
     def validate(self, data):
-        # Vérifier que new_password == confirm_password
         if data['new_password'] != data['confirm_password']:
             raise serializers.ValidationError({
                 'confirm_password': "Les mots de passe ne correspondent pas."
@@ -507,6 +514,7 @@ class ChangePasswordSerializer(serializers.Serializer):
         user.set_password(self.validated_data['new_password'])
         user.save()
         return user
+
 
 # ─────────────────────────────────────────
 # 8. MISE À JOUR PROFIL VENDEUR (US-04)

@@ -27,6 +27,7 @@ INSTALLED_APPS = [
     'tarif',
     'recommandation', 
     'entreprise',
+    'tournees',
     'notifications.apps.NotificationsConfig',
 'retours.apps.RetoursConfig',
 'notifications_client.apps.NotificationsClientConfig',
