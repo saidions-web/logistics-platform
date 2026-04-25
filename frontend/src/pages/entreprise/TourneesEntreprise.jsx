@@ -115,12 +115,16 @@ function TourneeCard({ tournee, onRefresh }) {
   setOptimizing(true)
   try {
     const res = await entrepriseApi.optimiserTournee(tournee.id)
-
-    // 🔥 mise à jour DIRECTE sans reload
-    setEtapes(res.data.etapes)
-
+    
+    // L'API renvoie { detail, etapes: [...] }
+    if (res.data.etapes) {
+      setEtapes(res.data.etapes)
+    } else {
+      loadEtapes() // fallback
+    }
   } catch (err) {
     console.error(err)
+    alert("Erreur lors de l'optimisation")
   } finally {
     setOptimizing(false)
   }

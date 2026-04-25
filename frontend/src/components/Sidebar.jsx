@@ -63,7 +63,10 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      <nav className="nav-section" style={{ marginTop: 'auto' }}>
+      
+
+      <div className="sidebar-footer">
+        <nav className="nav-section" style={{ marginTop: 'auto' }}>
         {bottomNav.map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
@@ -74,9 +77,6 @@ export default function Sidebar() {
           </NavLink>
         ))}
       </nav>
-
-      <div className="sidebar-footer">
-        
         <div className="user-chip" onClick={handleLogout} title="Se déconnecter">
           <div className="user-avatar">{initials}</div>
           <div className="user-info" style={{ flex: 1, overflow: 'hidden' }}>

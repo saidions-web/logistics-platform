@@ -1,6 +1,6 @@
 from rest_framework import serializers
 import re
-from .models import Livreur
+from .models import Livreur, PreuveLivraison   # ← Import du nouveau modèle
 from commandes.serializers import CommandeSerializer
 
 
@@ -56,7 +56,7 @@ class LivreurCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Le téléphone est obligatoire")
         tel = value.replace(' ', '').replace('-', '').replace('.', '')
         if not re.match(r'^(\+216|0|216)?[0-9]{8}$', tel):
-            raise serializers.ValidationError("Le téléphone doit être au format tunisien avec 8 chiffres (ex: 0X XXX XXX)")
+            raise serializers.ValidationError("Le téléphone doit être au format tunisien avec 8 chiffres")
         return value.strip()
 
     def validate_cin(self, value):
@@ -78,7 +78,7 @@ class LivreurCreateSerializer(serializers.ModelSerializer):
         if not value or not value.strip():
             raise serializers.ValidationError("L'immatriculation est requise")
         if not re.match(r'^[0-9]{3,4}\s?[A-Z]{2,3}\s?[0-9]+$', value.upper()):
-            raise serializers.ValidationError("L'immatriculation semble invalide (format: XXX AA 123)")
+            raise serializers.ValidationError("L'immatriculation semble invalide")
         return value.strip().upper()
 
 
@@ -100,3 +100,13 @@ class LivreurUpdateSerializer(serializers.ModelSerializer):
 class DashboardEntrepriseSerializer(serializers.Serializer):
     kpi = serializers.DictField()
     commandes_recentes = CommandeSerializer(many=True)
+
+
+# ─────────────────────────────────────────
+# PREUVE DE LIVRAISON (TOUT À LA FIN)
+# ─────────────────────────────────────────
+
+class PreuveLivraisonSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PreuveLivraison
+        fields = ['photo_preuve', 'commentaire_livreur']

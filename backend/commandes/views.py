@@ -31,7 +31,10 @@ class CommandeListCreateView(APIView):
         if not is_vendeur(request.user):
             return Response({'detail': 'Accès réservé aux vendeurs.'}, status=403)
 
-        commandes = Commande.objects.filter(vendeur=request.user).prefetch_related('colis', 'historique')
+        # Requête optimisée avec select_related pour récupérer le vendeur + sa boutique
+        commandes = Commande.objects.filter(vendeur=request.user)\
+            .select_related('vendeur', 'vendeur__vendeur_profile')\
+            .prefetch_related('colis', 'historique')
 
         if statut := request.query_params.get('statut'):
             commandes = commandes.filter(statut=statut)
@@ -50,7 +53,6 @@ class CommandeListCreateView(APIView):
 
         commandes = commandes.order_by('-created_at')
         return Response(CommandeSerializer(commandes, many=True).data)
-
     def post(self, request):
         if not is_vendeur(request.user):
             return Response({'detail': 'Accès réservé aux vendeurs.'}, status=403)
@@ -91,6 +93,9 @@ class CommandeDetailView(APIView):
         if not is_vendeur(request.user):
             return Response({'detail': 'Accès réservé aux vendeurs.'}, status=403)
         commande = self._get_commande(pk, request.user)
+        # Optionnel : si tu veux forcer le chargement
+        commande = Commande.objects.select_related('vendeur', 'vendeur__vendeur_profile')\
+            .prefetch_related('colis', 'historique').get(pk=pk, vendeur=request.user)        
         return Response(CommandeSerializer(commande).data)
 
     def patch(self, request, pk):
@@ -110,8 +115,9 @@ class CommandeDetailView(APIView):
             return Response({'detail': 'Impossible d\'annuler une commande déjà prise en charge.'}, status=400)
         commande.statut = StatutCommande.ANNULEE
         commande.save()
-        return Response({'detail': 'Commande annulée avec succès.'})
-
+        return Response({
+            "message": f"La commande {commande.reference} a été annulée avec succès."
+        }, status=200)
 
 # ══════════════════════════════════════════════════
 # SUIVI PUBLIC - VERSION CORRIGÉE (IMPORTANT)

@@ -4,20 +4,21 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
+from django.db import transaction   # pour la suppression livreur
 
 from accounts.models import EntrepriseProfile
 from commandes.models import Commande, StatutCommande, HistoriqueStatut
 
 # IMPORTS CORRIGÉS
-from .models import Livreur
+from .models import Livreur, PreuveLivraison          # ← Ajouté PreuveLivraison
 from .serializers import (
     LivreurSerializer, 
     LivreurCreateSerializer, 
     LivreurUpdateSerializer,
+    PreuveLivraisonSerializer,                       # ← AJOUT IMPORTANT
 )
 
-from commandes.serializers import CommandeSerializer   # ← CETTE LIGNE ÉTAIT MANQUANTE
-
+from commandes.serializers import CommandeSerializer
 from recommandation.models import Recommandation
 
 
@@ -87,6 +88,11 @@ class EntrepriseDashboardView(APIView):
 # GET /api/entreprise/commandes/
 # ─────────────────────────────────────────
 
+# ─────────────────────────────────────────
+# COMMANDES REÇUES PAR L'ENTREPRISE
+# GET /api/entreprise/commandes/
+# ─────────────────────────────────────────
+
 class EntrepriseCommandesView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -99,7 +105,10 @@ class EntrepriseCommandesView(APIView):
             entreprise_choisie=entreprise
         ).values_list('commande_id', flat=True)
 
-        commandes = Commande.objects.filter(id__in=reco_ids)
+        # Requête optimisée avec select_related pour récupérer le vendeur + sa boutique
+        commandes = Commande.objects.filter(
+            id__in=reco_ids
+        ).select_related('vendeur', 'vendeur__vendeur_profile')
 
         statut = request.query_params.get('statut')
         if statut:
@@ -121,45 +130,60 @@ class EntrepriseCommandesView(APIView):
         commandes = commandes.order_by('-created_at')
         return Response(CommandeSerializer(commandes, many=True).data)
 
-
 # ─────────────────────────────────────────
 # CHANGER LE STATUT D'UNE COMMANDE
 # PATCH /api/entreprise/commandes/<id>/statut/
 # ─────────────────────────────────────────
 
+# ══════════════════════════════════════════════════
+# CHANGER LE STATUT D'UNE COMMANDE (LIVREUR + ENTREPRISE)
+# PATCH /api/entreprise/commandes/<id>/statut/
+# ══════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════
+# CHANGER LE STATUT D'UNE COMMANDE (LIVREUR + ENTREPRISE)
+# PATCH /api/entreprise/commandes/<id>/statut/
+# ══════════════════════════════════════════════════
+
 class EntrepriseCommandeStatutView(APIView):
     permission_classes = [IsAuthenticated]
 
-    TRANSITIONS_AUTORISEES = {
-        StatutCommande.EN_ATTENTE:   [StatutCommande.PRISE_CHARGE, StatutCommande.ANNULEE],
-        StatutCommande.PRISE_CHARGE: [StatutCommande.EN_TRANSIT,   StatutCommande.RETOURNEE],
-        StatutCommande.EN_TRANSIT:   [StatutCommande.LIVREE,       StatutCommande.RETOURNEE],
-    }
-
     def patch(self, request, pk):
-        entreprise = get_entreprise_or_403(request.user)
-        if not entreprise:
-            return Response({'detail': 'Accès réservé aux entreprises.'}, status=403)
+        # === LIVREUR ===
+        if request.user.role == 'livreur':
+            livreur = getattr(request.user, 'livreur_profile', None)
+            if not livreur:
+                return Response({'detail': 'Profil livreur introuvable.'}, status=404)
 
-        reco_ids = Recommandation.objects.filter(
-            entreprise_choisie=entreprise
-        ).values_list('commande_id', flat=True)
+            commande = get_object_or_404(Commande, pk=pk)
+            # Vérifier que la commande appartient bien à une tournée de ce livreur
+            if not commande.affectations.filter(tournee__livreur=livreur).exists():
+                return Response({'detail': 'Cette commande ne vous est pas assignée.'}, status=403)
 
-        commande       = get_object_or_404(Commande, pk=pk, id__in=reco_ids)
+        # === ENTREPRISE ===
+        else:
+            entreprise = get_entreprise_or_403(request.user)
+            if not entreprise:
+                return Response({'detail': 'Accès réservé aux entreprises.'}, status=403)
+
+            reco_ids = Recommandation.objects.filter(
+                entreprise_choisie=entreprise
+            ).values_list('commande_id', flat=True)
+
+            commande = get_object_or_404(Commande, pk=pk, id__in=reco_ids)
+
         nouveau_statut = request.data.get('statut')
-        commentaire    = request.data.get('commentaire', '')
+        commentaire = request.data.get('commentaire', 'Action effectuée par le livreur via l\'application mobile')
 
         if not nouveau_statut:
             return Response({'detail': 'Le champ statut est requis.'}, status=400)
 
-        transitions_ok = self.TRANSITIONS_AUTORISEES.get(commande.statut, [])
-        if nouveau_statut not in transitions_ok:
-            return Response(
-                {'detail': f"Transition impossible : {commande.statut} → {nouveau_statut}"},
-                status=400
-            )
+        # Restriction pour le livreur : il ne peut que mettre "livree" ou "retournee"
+        if request.user.role == 'livreur':
+            if nouveau_statut not in [StatutCommande.LIVREE, StatutCommande.RETOURNEE]:
+                return Response({'detail': 'Le livreur ne peut que marquer Livrée ou Retour.'}, status=403)
 
-        ancien_statut   = commande.statut
+        ancien_statut = commande.statut
         commande.statut = nouveau_statut
         commande.save()
 
@@ -171,8 +195,6 @@ class EntrepriseCommandeStatutView(APIView):
         )
 
         return Response(CommandeSerializer(commande).data)
-
-
 # ─────────────────────────────────────────
 # LIVREURS
 # GET  /api/entreprise/livreurs/
@@ -242,6 +264,10 @@ class LivreurListCreateView(APIView):
 # LIVREUR DÉTAIL - Version corrigée (GET / PATCH / DELETE)
 # ─────────────────────────────────────────
 
+# ─────────────────────────────────────────
+# LIVREUR DÉTAIL - Version corrigée (GET / PATCH / DELETE)
+# ─────────────────────────────────────────
+
 class LivreurDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -278,22 +304,84 @@ class LivreurDetailView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, pk):
-        """Supprimer un livreur de manière sécurisée"""
+        """
+        Supprime un livreur de manière sécurisée :
+        - Désactive son compte utilisateur (bloque l'accès à l'app mobile)
+        - Dissocie le profil Livreur
+        - Nettoie les tournées en cours associées
+        """
         entreprise = get_entreprise_or_403(request.user)
         if not entreprise:
             return Response({'detail': 'Accès réservé aux entreprises.'}, status=403)
 
         livreur = self._get_livreur(pk, entreprise)
 
-        # Dissocier l'utilisateur avant suppression (évite les erreurs de contrainte)
-        if livreur.user:
-            livreur.user = None
-            livreur.save(update_fields=['user'])
+        try:
+            with transaction.atomic():
+                # 1. Désactiver le compte utilisateur
+                if livreur.user:
+                    user = livreur.user
+                    user.is_active = False
+                    user.save(update_fields=['is_active'])
 
-        # Suppression du livreur
-        livreur.delete()
+                # 2. Nettoyer les tournées en cours / planifiées
+                from .models import Tournee, StatutTournee   # Import local pour éviter circular import
 
-        return Response(
-            {'detail': 'Livreur supprimé avec succès.'}, 
-            status=status.HTTP_204_NO_CONTENT
+                Tournee.objects.filter(
+                    livreur=livreur,
+                    statut__in=[StatutTournee.PLANIFIEE, StatutTournee.EN_COURS]
+                ).update(livreur=None)
+
+                # 3. Dissocier le user du profil livreur
+                livreur.user = None
+                livreur.save(update_fields=['user'])
+
+                # 4. Supprimer le profil Livreur
+                livreur.delete()
+
+            return Response({
+                'detail': 'Livreur supprimé avec succès. '
+                          'Son compte utilisateur a été désactivé et ne peut plus se connecter à l\'application mobile.'
+            }, status=status.HTTP_204_NO_CONTENT)
+
+        except Exception as e:
+            print(f"Erreur suppression livreur {pk}: {e}")
+            return Response({
+                'detail': 'Une erreur est survenue lors de la suppression du livreur.'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+# Ajoute cette classe dans le fichier views.py de l'app entreprise
+
+class PreuveLivraisonCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, commande_id):
+        if request.user.role != 'livreur':
+            return Response({'detail': 'Accès réservé aux livreurs.'}, status=403)
+
+        livreur = getattr(request.user, 'livreur_profile', None)
+        if not livreur:
+            return Response({'detail': 'Profil livreur introuvable.'}, status=404)
+
+        commande = get_object_or_404(Commande, pk=commande_id)
+
+        # Vérification que la commande appartient au livreur
+        if not commande.affectations.filter(tournee__livreur=livreur).exists():
+            return Response({'detail': 'Cette commande ne vous est pas assignée.'}, status=403)
+
+        affectation = commande.affectations.first()
+        tournee = affectation.tournee if affectation else None
+
+        serializer = PreuveLivraisonSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=400)
+
+        PreuveLivraison.objects.update_or_create(
+            commande=commande,
+            defaults={
+                'tournee': tournee,
+                'photo_preuve': request.FILES.get('photo_preuve'),
+                'commentaire_livreur': serializer.validated_data.get('commentaire_livreur', ''),
+            }
         )
+
+        return Response({'detail': 'Preuve de livraison enregistrée.'}, status=201)

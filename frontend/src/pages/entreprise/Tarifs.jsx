@@ -72,36 +72,57 @@ export default function Tarifs() {
  
   // ── Ajouter tarif ───────────────────────────
 
-  const handleAdd = async () => {
-
-    try {
-
-      await recommandationApi.addTarif(form)
-
-      setForm({
-
-        gouvernorat: '',
-
-        poids_min: '',
-
-        poids_max: '',
-
-        prix: '',
-
-        delai_jours: '',
-
-      })
-
-      load()
-
-    } catch {
-
-      alert('Erreur ajout tarif')
-
-    }
-
+  // ── Ajouter tarif ───────────────────────────
+const handleAdd = async () => {
+  // Validation côté frontend
+  if (!form.gouvernorat) {
+    alert("Veuillez sélectionner un gouvernorat");
+    return;
   }
- 
+  if (!form.poids_min || !form.poids_max || !form.prix) {
+    alert("Veuillez remplir le poids minimum, poids maximum et le prix");
+    return;
+  }
+
+  const payload = {
+    gouvernorat: form.gouvernorat,
+    poids_min: parseFloat(form.poids_min),
+    poids_max: parseFloat(form.poids_max),
+    prix: parseFloat(form.prix),
+    delai_jours: form.delai_jours ? parseInt(form.delai_jours) : 3,
+  };
+
+  try {
+    await recommandationApi.addTarif(payload);
+    
+    alert("✅ Tarif ajouté avec succès !");
+    
+    // Réinitialiser le formulaire
+    setForm({
+      gouvernorat: '',
+      poids_min: '',
+      poids_max: '',
+      prix: '',
+      delai_jours: '',
+    });
+
+    load(); // Recharger la liste
+  } catch (err) {
+    console.error("Erreur complète :", err.response?.data);
+    const errors = err.response?.data || {};
+    let message = "Erreur lors de l'ajout du tarif.\n";
+    
+    if (typeof errors === 'object') {
+      Object.keys(errors).forEach(key => {
+        message += `- ${key}: ${errors[key]}\n`;
+      });
+    } else {
+      message += errors;
+    }
+    
+    alert(message);
+  }
+};
   // ── Supprimer tarif ─────────────────────────
 
   const handleDelete = async (id) => {

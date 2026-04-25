@@ -31,35 +31,60 @@ def get_entreprise_or_403(user):
 # Body : { commande_id, motif, commentaire }
 # ═══════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════
+# DÉCLARER UN RETOUR (LIVREUR + ENTREPRISE)
+# POST /api/retours/declarer/   ou /api/retours/
+# Body : { commande_id, motif, commentaire }
+# ═══════════════════════════════════════════════════════
+
 class RetourCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        entreprise = get_entreprise_or_403(request.user)
-        if not entreprise:
-            return Response({'detail': 'Accès réservé aux entreprises.'}, status=403)
+        commande = None
+
+        # === CAS LIVREUR ===
+        if request.user.role == 'livreur':
+            livreur = getattr(request.user, 'livreur_profile', None)
+            if not livreur:
+                return Response({'detail': 'Profil livreur introuvable.'}, status=404)
+
+            commande_id = request.data.get('commande_id')
+            commande = get_object_or_404(Commande, pk=commande_id)
+
+            # Vérifier que la commande appartient bien à une tournée de ce livreur
+            if not commande.affectations.filter(tournee__livreur=livreur).exists():
+                return Response({'detail': 'Cette commande ne vous est pas assignée.'}, status=403)
+
+        # === CAS ENTREPRISE ===
+        else:
+            entreprise = get_entreprise_or_403(request.user)
+            if not entreprise:
+                return Response({'detail': 'Accès réservé aux entreprises.'}, status=403)
+
+            from recommandation.models import Recommandation
+            reco_ids = Recommandation.objects.filter(
+                entreprise_choisie=entreprise
+            ).values_list('commande_id', flat=True)
+
+            commande_id = request.data.get('commande_id')
+            commande = get_object_or_404(
+                Commande,
+                pk=commande_id,
+                id__in=reco_ids
+            )
 
         serializer = RetourCreateSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)
 
-        from recommandation.models import Recommandation
+        motif = serializer.validated_data['motif']
+        commentaire = serializer.validated_data.get('commentaire', '')
 
-        # Vérifier que la commande appartient à cette entreprise
-        reco_ids = Recommandation.objects.filter(
-            entreprise_choisie=entreprise
-        ).values_list('commande_id', flat=True)
-
-        commande = get_object_or_404(
-            Commande,
-            pk=serializer.validated_data['commande_id'],
-            id__in=reco_ids
-        )
-
-        # La commande doit être en transit ou prise en charge
+        # Vérification du statut de la commande
         if commande.statut not in [StatutCommande.EN_TRANSIT, StatutCommande.PRISE_CHARGE]:
             return Response(
-                {'detail': f'Impossible de déclarer un retour depuis le statut "{commande.statut}".'},
+                {'detail': f'Impossible de déclarer un retour depuis le statut "{commande.get_statut_display()}".'},
                 status=400
             )
 
@@ -68,7 +93,7 @@ class RetourCreateView(APIView):
             return Response({'detail': 'Un retour existe déjà pour cette commande.'}, status=400)
 
         # Changer le statut de la commande
-        ancien_statut   = commande.statut
+        ancien_statut = commande.statut
         commande.statut = StatutCommande.RETOURNEE
         commande.save()
 
@@ -76,29 +101,28 @@ class RetourCreateView(APIView):
             commande=commande,
             ancien_statut=ancien_statut,
             nouveau_statut=StatutCommande.RETOURNEE,
-            commentaire=f"Retour — {serializer.validated_data['motif']} : {serializer.validated_data.get('commentaire', '')}",
+            commentaire=f"Retour déclaré — Motif: {motif} | {commentaire}",
         )
 
-        # Créer l'enregistrement de retour
+        # Créer le retour
         retour = RetourCommande.objects.create(
             commande=commande,
-            motif=serializer.validated_data['motif'],
-            commentaire=serializer.validated_data.get('commentaire', ''),
+            motif=motif,
+            commentaire=commentaire,
+            statut=StatutRetour.EN_COURS,   # ou la valeur par défaut de ton modèle
         )
 
-        # Notifier le vendeur
+        # Notification au vendeur
         Notification.objects.create(
             utilisateur=commande.vendeur,
             titre="Commande retournée",
             message=(
                 f"Votre commande {commande.reference} a été retournée "
-                f"({retour.get_motif_display()}). "
-                f"Veuillez choisir une action dans votre espace."
+                f"({retour.get_motif_display() if hasattr(retour, 'get_motif_display') else motif})."
             )
         )
 
         return Response(RetourCommandeSerializer(retour).data, status=201)
-
 
 # ═══════════════════════════════════════════════════════
 # VENDEUR — Liste de ses retours

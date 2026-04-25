@@ -26,7 +26,40 @@ def get_entreprise_or_403(user):
 # ─────────────────────────────────────────
 # TOURNÉES ENTREPRISE - Liste & Création
 # ─────────────────────────────────────────
+# ─────────────────────────────────────────
+# DÉTAIL TOURNÉE POUR LIVREUR
+# GET /api/entreprise/livreur/tournees/<id>/
+# ─────────────────────────────────────────
+class LivreurTourneeAffectationsView(APIView):
+    permission_classes = [IsAuthenticated]
 
+    def get(self, request, pk):
+        if request.user.role != 'livreur':
+            return Response({'detail': 'Accès réservé aux livreurs.'}, status=403)
+
+        livreur = getattr(request.user, 'livreur_profile', None)
+        if not livreur:
+            return Response({'detail': 'Profil livreur introuvable.'}, status=404)
+
+        tournee = get_object_or_404(Tournee, pk=pk, livreur=livreur)
+        affectations = tournee.affectations.select_related('commande').order_by('ordre')
+
+        return Response(AffectationSerializer(affectations, many=True).data)
+class LivreurTourneeDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        if request.user.role != 'livreur':
+            return Response({'detail': 'Accès réservé aux livreurs.'}, status=403)
+
+        livreur = getattr(request.user, 'livreur_profile', None)
+        if not livreur:
+            return Response({'detail': 'Profil livreur introuvable.'}, status=404)
+
+        # Vérifier que la tournée appartient bien à ce livreur
+        tournee = get_object_or_404(Tournee, pk=pk, livreur=livreur)
+
+        return Response(TourneeSerializer(tournee).data)
 class TourneeListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -66,68 +99,93 @@ class TourneeListCreateView(APIView):
 # DÉTAIL TOURNÉE
 # ─────────────────────────────────────────
 
+# ─────────────────────────────────────────
+# DÉTAIL TOURNÉE (CORRIGÉE - Support Livreur + Entreprise)
+# ─────────────────────────────────────────
+# ─────────────────────────────────────────
+# DÉTAIL TOURNÉE (Version finale - Support complet Livreur)
+# ─────────────────────────────────────────
+
 class TourneeDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def _get_tournee(self, pk, entreprise):
-        return get_object_or_404(Tournee, pk=pk, entreprise=entreprise)
-
     def get(self, request, pk):
+        """ Le livreur peut voir SA tournée """
+        if request.user.role == 'livreur':
+            livreur = getattr(request.user, 'livreur_profile', None)
+            if livreur:
+                tournee = get_object_or_404(Tournee, pk=pk, livreur=livreur)
+                return Response(TourneeSerializer(tournee).data)
+
         entreprise = get_entreprise_or_403(request.user)
         if not entreprise:
-            return Response({'detail': 'Accès réservé aux entreprises.'}, status=403)
-        tournee = self._get_tournee(pk, entreprise)
+            return Response({'detail': 'Accès réservé aux entreprises ou au livreur concerné.'}, status=403)
+
+        tournee = get_object_or_404(Tournee, pk=pk, entreprise=entreprise)
         return Response(TourneeSerializer(tournee).data)
 
     def patch(self, request, pk):
-        entreprise = get_entreprise_or_403(request.user)
-        if not entreprise:
-            return Response({'detail': 'Accès réservé aux entreprises.'}, status=403)
-        tournee = self._get_tournee(pk, entreprise)
+        """ Démarrer ou terminer la tournée (livreur + entreprise) """
+        # Déterminer la tournée selon le rôle
+        if request.user.role == 'livreur':
+            livreur = getattr(request.user, 'livreur_profile', None)
+            if not livreur:
+                return Response({'detail': 'Profil livreur introuvable.'}, status=404)
+            tournee = get_object_or_404(Tournee, pk=pk, livreur=livreur)
+        else:
+            entreprise = get_entreprise_or_403(request.user)
+            if not entreprise:
+                return Response({'detail': 'Accès réservé aux entreprises.'}, status=403)
+            tournee = get_object_or_404(Tournee, pk=pk, entreprise=entreprise)
 
         if tournee.statut == StatutTournee.TERMINEE:
             return Response({'detail': 'Impossible de modifier une tournée terminée.'}, status=400)
 
         serializer = TourneeUpdateSerializer(tournee, data=request.data, partial=True)
-        if serializer.is_valid():
-            livreur = serializer.validated_data.get('livreur')
-            if livreur and livreur.entreprise != entreprise:
-                return Response({'detail': 'Ce livreur n\'appartient pas à votre entreprise.'}, status=400)
-            tournee = serializer.save()
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=400)
 
-            if tournee.statut == StatutTournee.EN_COURS and tournee.livreur:
-                tournee.livreur.statut = 'en_tournee'
+        tournee = serializer.save()
+
+        # ====================== LOGIQUE IMPORTANTE ======================
+        if tournee.statut == StatutTournee.EN_COURS and tournee.livreur:
+            # 1. Changer le statut du livreur
+            tournee.livreur.statut = 'en_tournee'
+            tournee.livreur.save()
+
+            # 2. Changer TOUTES les commandes de la tournée en "prise_charge"
+            for affectation in tournee.affectations.select_related('commande').all():
+                commande = affectation.commande
+                if commande.statut == StatutCommande.EN_ATTENTE:
+                    ancien = commande.statut
+                    commande.statut = StatutCommande.PRISE_CHARGE
+                    commande.save()
+
+                    HistoriqueStatut.objects.create(
+                        commande=commande,
+                        ancien_statut=ancien,
+                        nouveau_statut=StatutCommande.PRISE_CHARGE,
+                        commentaire=f"Tournée {tournee.reference} démarrée par le livreur",
+                    )
+
+        if tournee.statut == StatutTournee.TERMINEE:
+            for affectation in tournee.affectations.select_related('commande').all():
+                commande = affectation.commande
+                if commande.statut in [StatutCommande.EN_TRANSIT, StatutCommande.PRISE_CHARGE]:
+                    ancien = commande.statut
+                    commande.statut = StatutCommande.LIVREE
+                    commande.save()
+                    HistoriqueStatut.objects.create(
+                        commande=commande,
+                        ancien_statut=ancien,
+                        nouveau_statut=StatutCommande.LIVREE,
+                        commentaire=f"Tournée {tournee.reference} terminée",
+                    )
+            if tournee.livreur:
+                tournee.livreur.statut = 'disponible'
                 tournee.livreur.save()
 
-            if tournee.statut == StatutTournee.TERMINEE:
-                for affectation in tournee.affectations.select_related('commande').all():
-                    commande = affectation.commande
-                    if commande.statut in [StatutCommande.EN_TRANSIT, StatutCommande.PRISE_CHARGE]:
-                        ancien = commande.statut
-                        commande.statut = StatutCommande.LIVREE
-                        commande.save()
-                        HistoriqueStatut.objects.create(
-                            commande=commande,
-                            ancien_statut=ancien,
-                            nouveau_statut=StatutCommande.LIVREE,
-                            commentaire=f"Tournée {tournee.reference} terminée",
-                        )
-                if tournee.livreur:
-                    tournee.livreur.statut = 'disponible'
-                    tournee.livreur.save()
-
-            return Response(TourneeSerializer(tournee).data)
-        return Response(serializer.errors, status=400)
-
-    def delete(self, request, pk):
-        entreprise = get_entreprise_or_403(request.user)
-        if not entreprise:
-            return Response({'detail': 'Accès réservé aux entreprises.'}, status=403)
-        tournee = self._get_tournee(pk, entreprise)
-        if tournee.statut == StatutTournee.EN_COURS:
-            return Response({'detail': 'Impossible de supprimer une tournée en cours.'}, status=400)
-        tournee.delete()
-        return Response({'detail': 'Tournée supprimée.'}, status=204)
+        return Response(TourneeSerializer(tournee).data)
 
 # ─────────────────────────────────────────
 # US-18 — Affectation automatique

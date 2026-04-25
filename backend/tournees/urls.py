@@ -9,7 +9,9 @@ from .views import (
     TourneeReordonnerView,
     LivreursPositionsView,
     LivreurPositionUpdateView,
-    AffectationAutoView,          # ← On ajoute cette ligne
+    AffectationAutoView,   
+     LivreurTourneeDetailView,     
+     LivreurTourneeAffectationsView,  
 )
 
 app_name = 'tournees'
@@ -26,6 +28,8 @@ urlpatterns = [
     path('affectation/auto/', AffectationAutoView.as_view(), name='affectation-auto'),
 
     path('livreur/tournees/', LivreurTourneeView.as_view(), name='livreur-tournees'),
+path('livreur/tournees/<int:pk>/', LivreurTourneeDetailView.as_view(), name='livreur-tournee-detail'),
+path('livreur/tournees/<int:pk>/commandes/', LivreurTourneeAffectationsView.as_view(), name='livreur-tournee-commandes'),
 
     path('livreurs/positions/', LivreursPositionsView.as_view(), name='livreurs-positions'),
     path('livreurs/<int:pk>/position/', LivreurPositionUpdateView.as_view(), name='livreur-position-update'),

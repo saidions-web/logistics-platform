@@ -82,3 +82,39 @@ class Livreur(models.Model):
     def nb_tournees_actives(self):
         # On utilise une string pour éviter le circular import avec l'app 'tournees'
         return self.tournees.filter(statut='en_cours').count()
+    # À ajouter à la fin du fichier entreprise/models.py
+
+# À la fin de entreprise/models.py
+
+from commandes.models import Commande
+
+class PreuveLivraison(models.Model):
+    commande = models.OneToOneField(
+        Commande,
+        on_delete=models.CASCADE,
+        related_name='preuve_livraison'
+    )
+    
+    tournee = models.ForeignKey(
+        'tournees.Tournee',      # string = pas de circular import
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='preuves'
+    )
+
+    photo_preuve = models.ImageField(
+        upload_to='preuves/photos/%Y/%m/%d/',
+        null=True,
+        blank=True
+    )
+    commentaire_livreur = models.TextField(blank=True)
+
+    date_validation = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Preuve de livraison"
+        verbose_name_plural = "Preuves de livraison"
+
+    def __str__(self):
+        return f"Preuve - {self.commande.reference}"

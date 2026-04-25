@@ -90,9 +90,7 @@ export default function DashboardVendeur() {
           </div>
 
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <button className="btn btn-secondary btn-sm">
-              <TrendingUp size={14} /> Rapport
-            </button>
+            
             <a href="/colis" className="btn btn-primary btn-sm">
               <Package size={14} /> Nouvelle commande
             </a>

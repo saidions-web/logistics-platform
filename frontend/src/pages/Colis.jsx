@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Search, Package, Pencil, X, Eye, Download, FileText, Star,
+import { Plus, Search, Package, Pencil, X, Eye, Download, Star,
          ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 import { commandesApi } from '../services/api'
 import { DetailCommandeModal } from './DetailCommande'
@@ -42,7 +42,7 @@ const PAGE_SIZE_OPTIONS = [10, 20, 50]
 const newColis = () => ({ description: '', poids: '', fragile: false })
 
 // ════════════════════════════════════════════════════════
-// Composant Pagination
+// Composant Pagination (inchangé)
 // ════════════════════════════════════════════════════════
 function Pagination({ page, totalPages, total, pageSize, onPageChange, onPageSizeChange }) {
   if (total === 0) return null
@@ -259,24 +259,42 @@ function AddCommandeModal({ onClose, onCreated }) {
     dest_nom: '', dest_prenom: '', dest_telephone: '',
     dest_adresse: '', dest_gouvernorat: 'Tunis',
     type_livraison: 'standard', montant_a_collecter: '',
-     notes: '', colis: [newColis()],
+    notes: '', colis: [newColis()],
   })
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState('')
 
   const handleSubmit = async (e) => {
-    e.preventDefault(); setError(''); setLoading(true)
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+
     try {
-      await commandesApi.create({
+      const response = await commandesApi.create({
         ...form,
         montant_a_collecter: parseFloat(form.montant_a_collecter),
-        colis: form.colis.map(c => ({ ...c, poids: parseFloat(c.poids) })),
+        colis: form.colis.map(c => ({ 
+          ...c, 
+          poids: parseFloat(c.poids) 
+        })),
       })
-      onCreated(); onClose()
+
+      // ✅ Message de succès depuis le backend
+      const successMsg = response.data.message || "La commande a été créée avec succès !"
+      alert(successMsg)                    // Temporaire
+      // toast.success(successMsg)         // À utiliser après installation de react-toastify
+
+      onCreated()
+      onClose()
     } catch (err) {
-      const data = err.response?.data
-      setError(typeof data === 'object' ? Object.values(data).flat().join(' ') : 'Une erreur est survenue.')
-    } finally { setLoading(false) }
+      const data = err.response?.data || {}
+      const errorMsg = data.detail || 
+                      (typeof data === 'object' ? Object.values(data).flat().join(' • ') : 
+                      'Une erreur est survenue lors de la création.')
+      setError(errorMsg)
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -286,8 +304,15 @@ function AddCommandeModal({ onClose, onCreated }) {
           <h3>Nouvelle commande</h3>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
-        <CommandeForm form={form} setForm={setForm} error={error} loading={loading}
-          onSubmit={handleSubmit} onClose={onClose} isEdit={false} />
+        <CommandeForm 
+          form={form} 
+          setForm={setForm} 
+          error={error} 
+          loading={loading}
+          onSubmit={handleSubmit} 
+          onClose={onClose} 
+          isEdit={false} 
+        />
       </div>
     </div>
   )
@@ -307,27 +332,48 @@ function EditCommandeModal({ commande, onClose, onUpdated }) {
     montant_a_collecter: commande.montant_a_collecter,
     notes:               commande.notes || '',
     colis: commande.colis?.length
-      ? commande.colis.map(c => ({ description: c.description, poids: String(c.poids), fragile: c.fragile }))
+      ? commande.colis.map(c => ({ 
+          description: c.description, 
+          poids: String(c.poids), 
+          fragile: c.fragile 
+        }))
       : [newColis()],
   })
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState('')
 
   const handleSubmit = async (e) => {
-    e.preventDefault(); setError(''); setLoading(true)
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+
     try {
-      await commandesApi.update(commande.id, {
+      const response = await commandesApi.update(commande.id, {
         ...form,
         montant_a_collecter: parseFloat(form.montant_a_collecter),
-        colis: form.colis.map(c => ({ ...c, poids: parseFloat(c.poids) })),
+        colis: form.colis.map(c => ({ 
+          ...c, 
+          poids: parseFloat(c.poids) 
+        })),
       })
-      onUpdated(); onClose()
+
+      // ✅ Message de succès depuis le backend
+      const successMsg = response.data.message || "La commande a été modifiée avec succès !"
+      alert(successMsg)
+      // toast.success(successMsg)
+
+      onUpdated()
+      onClose()
     } catch (err) {
-      const data = err.response?.data
-      const msg = data?.non_field_errors?.[0] || data?.detail ||
-        (typeof data === 'object' ? Object.values(data).flat().join(' ') : 'Une erreur est survenue.')
+      const data = err.response?.data || {}
+      const msg = data.detail || 
+                  data.non_field_errors?.[0] ||
+                  (typeof data === 'object' ? Object.values(data).flat().join(' • ') : 
+                  'Une erreur est survenue lors de la modification.')
       setError(msg)
-    } finally { setLoading(false) }
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -340,8 +386,15 @@ function EditCommandeModal({ commande, onClose, onUpdated }) {
         <div style={{ padding: '8px 0 12px', fontSize: 12, color: 'var(--text-muted)' }}>
           ⚠️ La modification n'est possible que si la commande est encore <strong>En attente</strong>.
         </div>
-        <CommandeForm form={form} setForm={setForm} error={error} loading={loading}
-          onSubmit={handleSubmit} onClose={onClose} isEdit={true} />
+        <CommandeForm 
+          form={form} 
+          setForm={setForm} 
+          error={error} 
+          loading={loading}
+          onSubmit={handleSubmit} 
+          onClose={onClose} 
+          isEdit={true} 
+        />
       </div>
     </div>
   )
@@ -357,11 +410,19 @@ function CancelModal({ commande, onClose, onCancelled }) {
   const handleCancel = async () => {
     setLoading(true)
     try {
-      await commandesApi.cancel(commande.id)
-      onCancelled(); onClose()
+      const response = await commandesApi.cancel(commande.id)
+      
+      const successMsg = response.data.message || "La commande a été annulée avec succès."
+      alert(successMsg)
+      // toast.success(successMsg)
+
+      onCancelled()
+      onClose()
     } catch (err) {
-      setError(err.response?.data?.detail || 'Impossible d\'annuler cette commande.')
-    } finally { setLoading(false) }
+      setError(err.response?.data?.detail || "Impossible d'annuler cette commande.")
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -417,7 +478,7 @@ export default function Colis() {
   const [detailId, setDetailId]     = useState(null)
   const [recoTarget, setRecoTarget] = useState(null)
 
-  // ── Pagination ──
+  // Pagination
   const [page, setPage]         = useState(1)
   const [pageSize, setPageSize] = useState(10)
 
@@ -438,7 +499,6 @@ export default function Colis() {
 
   useEffect(() => { fetchCommandes() }, [filterStatut])
 
-  // Filtrage local par recherche
   const filtered = commandes.filter(c => {
     const q = search.toLowerCase()
     return (
@@ -449,7 +509,6 @@ export default function Colis() {
     )
   })
 
-  // Pagination
   const total      = filtered.length
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const paginated  = filtered.slice((page - 1) * pageSize, page * pageSize)
@@ -460,7 +519,6 @@ export default function Colis() {
   const canEdit   = (c) => c.statut === 'en_attente'
   const canCancel = (c) => c.statut === 'en_attente'
 
-  // ── Export Excel ──
   const exportExcel = async () => {
     const XLSX = await import('xlsx')
     const data = filtered.map(c => ({
@@ -479,11 +537,6 @@ export default function Colis() {
       'Date création':      new Date(c.created_at).toLocaleDateString('fr-FR'),
     }))
     const ws = XLSX.utils.json_to_sheet(data)
-    ws['!cols'] = [
-      { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 30 },
-      { wch: 16 }, { wch: 18 }, { wch: 14 }, { wch: 10 }, { wch: 14 },
-      { wch: 16 }, { wch: 18 }, { wch: 30 }, { wch: 14 },
-    ]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Commandes')
     XLSX.writeFile(wb, `commandes_${new Date().toISOString().slice(0, 10)}.xlsx`)
@@ -518,7 +571,7 @@ export default function Colis() {
           <option value="tous">Tous les statuts</option>
           {Object.entries(STATUT_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
-        <button className="btn btn-secondary" onClick={exportExcel} disabled={filtered.length === 0} title="Exporter en Excel">
+        <button className="btn btn-secondary" onClick={exportExcel} disabled={filtered.length === 0}>
           <Download size={15} /> Exporter Excel
         </button>
         <button className="btn btn-primary" onClick={() => setShowAdd(true)}>
@@ -577,13 +630,9 @@ export default function Colis() {
                       <span className={`badge ${STATUT_BADGE[c.statut] || 'badge-warning'}`}>
                         {STATUT_LABEL[c.statut] || c.statut}
                       </span>
-                      {c.colis?.some(col => col.fragile) && (
-                        <span style={{ fontSize: 11, color: 'var(--warning)', display: 'block', marginTop: 2 }}>⚠ Fragile</span>
-                      )}
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: 6 }}>
-                        
                         <button title="Recommandation prestataire" onClick={() => setRecoTarget(c)}
                           disabled={c.statut !== 'en_attente'}
                           style={{ background: 'none', border: 'none', cursor: c.statut === 'en_attente' ? 'pointer' : 'not-allowed', color: c.statut === 'en_attente' ? '#f59e0b' : 'var(--text-muted)', padding: 4 }}>
@@ -610,7 +659,6 @@ export default function Colis() {
           )}
         </div>
 
-        {/* ── Pagination ── */}
         {!loading && filtered.length > 0 && (
           <Pagination
             page={page}

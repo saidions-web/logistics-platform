@@ -13,11 +13,13 @@ class AffectationSerializer(serializers.ModelSerializer):
     commande_dest_nom    = serializers.CharField(source='commande.dest_nom',         read_only=True)
     commande_dest_prenom = serializers.CharField(source='commande.dest_prenom',      read_only=True)
     commande_gouvernorat = serializers.CharField(source='commande.dest_gouvernorat', read_only=True)
+    commande_dest_adresse = serializers.CharField(source='commande.dest_adresse', read_only=True)
     commande_statut      = serializers.CharField(source='commande.statut',           read_only=True)
     commande_montant     = serializers.DecimalField(
         source='commande.montant_a_collecter',
         max_digits=10, decimal_places=3, read_only=True
     )
+    commande_dest_telephone = serializers.CharField(source='commande.dest_telephone', read_only=True)
 
     class Meta:
         model  = AffectationCommande
@@ -26,8 +28,8 @@ class AffectationSerializer(serializers.ModelSerializer):
             'commande', 'commande_reference',
             'commande_dest_nom', 'commande_dest_prenom',
             'commande_gouvernorat', 'commande_statut',
-            'commande_montant',
-            'affectee_le',
+            'commande_montant','commande_dest_adresse',      
+            'affectee_le','commande_dest_telephone',
         ]
 
 

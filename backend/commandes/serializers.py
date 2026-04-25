@@ -44,6 +44,10 @@ class CommandeSerializer(serializers.ModelSerializer):
     dest_latitude  = serializers.FloatField(read_only=True)
     dest_longitude = serializers.FloatField(read_only=True)
 
+    # === AJOUT IMPORTANT POUR AFFICHER LA BOUTIQUE ===
+    vendeur_nom_complet = serializers.SerializerMethodField()
+    boutique            = serializers.SerializerMethodField()
+
     class Meta:
         model = Commande
         fields = [
@@ -59,7 +63,27 @@ class CommandeSerializer(serializers.ModelSerializer):
             'nombre_colis', 'poids_total',
             'colis', 'historique',
             'created_at', 'updated_at',
+
+            # Nouveaux champs
+            'vendeur_nom_complet',
+            'boutique',
         ]
+
+    def get_vendeur_nom_complet(self, obj):
+        if obj.vendeur:
+            return f"{obj.vendeur.first_name} {obj.vendeur.last_name}".strip()
+        return None
+
+    def get_boutique(self, obj):
+        if obj.vendeur and hasattr(obj.vendeur, 'vendeur_profile'):
+            p = obj.vendeur.vendeur_profile
+            return {
+                'nom_boutique': p.nom_boutique,
+                'secteur': p.secteur,
+                'gouvernorat': p.gouvernorat,
+                'adresse_expedition': p.adresse_expedition,
+            }
+        return None
 
 
 class CommandeCreateSerializer(serializers.ModelSerializer):
@@ -144,7 +168,7 @@ class CommandeCreateSerializer(serializers.ModelSerializer):
         # Recalcul du prix de livraison (après création des colis)
         commande.prix_livraison = commande.calcul_prix_livraison()
         commande.save(update_fields=['prix_livraison'])
-
+        self.success_message = f"La commande {commande.reference} a été créée avec succès."
         return commande
 
 
@@ -193,5 +217,5 @@ class CommandeUpdateSerializer(serializers.ModelSerializer):
 
             instance.prix_livraison = instance.calcul_prix_livraison()
             instance.save(update_fields=['prix_livraison'])
-
+        self.success_message = f"La commande {instance.reference} a été modifiée avec succès."
         return instance
