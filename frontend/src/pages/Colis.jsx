@@ -264,38 +264,37 @@ function AddCommandeModal({ onClose, onCreated }) {
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState('')
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    setError('')
-    setLoading(true)
+  // Dans AddCommandeModal — handleSubmit simplifié
+const handleSubmit = async (e) => {
+  e.preventDefault()
+  setError('')
+  setLoading(true)
 
-    try {
-      const response = await commandesApi.create({
-        ...form,
-        montant_a_collecter: parseFloat(form.montant_a_collecter),
-        colis: form.colis.map(c => ({ 
-          ...c, 
-          poids: parseFloat(c.poids) 
-        })),
-      })
+  try {
+    // ✅ Création simple sans recommandation_id
+    // Le scoring se fait après via le bouton ⭐
+    await commandesApi.create({
+      ...form,
+      montant_a_collecter: parseFloat(form.montant_a_collecter),
+      colis: form.colis.map(c => ({
+        ...c,
+        poids: parseFloat(c.poids),
+      })),
+    })
 
-      // ✅ Message de succès depuis le backend
-      const successMsg = response.data.message || "La commande a été créée avec succès !"
-      alert(successMsg)                    // Temporaire
-      // toast.success(successMsg)         // À utiliser après installation de react-toastify
-
-      onCreated()
-      onClose()
-    } catch (err) {
-      const data = err.response?.data || {}
-      const errorMsg = data.detail || 
-                      (typeof data === 'object' ? Object.values(data).flat().join(' • ') : 
-                      'Une erreur est survenue lors de la création.')
-      setError(errorMsg)
-    } finally {
-      setLoading(false)
-    }
+    onCreated()
+    onClose()
+  } catch (err) {
+    const data = err.response?.data || {}
+    setError(
+      data.detail ||
+      Object.values(data).flat().join(' • ') ||
+      'Une erreur est survenue.'
+    )
+  } finally {
+    setLoading(false)
   }
+}
 
   return (
     <div className="modal-overlay" onClick={onClose}>

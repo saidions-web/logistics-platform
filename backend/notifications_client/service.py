@@ -11,105 +11,91 @@ def _lien_suivi(commande):
 
 
 def _normaliser_tel(telephone):
-    """Convertit un numéro tunisien au format international E.164."""
-    tel = telephone.replace(' ', '').replace('-', '')
+    tel = telephone.strip().replace(' ', '').replace('-', '')
+    if tel.startswith('+'):
+        return tel
+    if tel.startswith('00'):
+        return '+' + tel[2:]
+    if tel.startswith('216'):
+        return '+' + tel
     if tel.startswith('0'):
         return '+216' + tel[1:]
-    if not tel.startswith('+'):
-        return '+216' + tel
-    return tel
+    return '+216' + tel
 
 
 def _get_canal(commande):
-    """Retourne le canal configuré par le vendeur. Défaut : 'both'."""
-    try:
-        return commande.vendeur.config_notification.canal
-    except Exception:
-        return 'both'
+    return 'sms'
 
-
-# ── SMS ───────────────────────────────────────────────────────────────────────
 
 def _envoyer_sms(commande, evenement, lien):
-    try:
-        nom_boutique = commande.vendeur.vendeur_profile.nom_boutique
-    except:
-        nom_boutique = "LogiSync"
-
-    total = commande.montant_total
-
-    message = (
-        f"{nom_boutique} \n"
-        f"Cmd: {commande.reference}\n"
-        f"Total: {total:.2f} TND \n"
-        
-    )
-
     telephone = commande.dest_telephone
     if not telephone:
-        return False
+        logger.info(f"[SMS] Pas de téléphone pour commande {commande.reference}")
+        return
 
     tel = _normaliser_tel(telephone)
 
     try:
-        from twilio.rest import Client
+        nom_boutique = commande.vendeur.vendeur_profile.nom_boutique
+    except Exception:
+        nom_boutique = "LogiSync"
 
+    message = (
+        f"Bonjour {commande.dest_prenom}, "
+        f"votre commande {commande.reference} de {nom_boutique} "
+        f"est en cours de livraison. "
+        f"Suivi : {lien}"
+    )
+
+    try:
+        from twilio.rest import Client
         client = Client(
             settings.TWILIO_ACCOUNT_SID,
             settings.TWILIO_AUTH_TOKEN
         )
-
-        client.messages.create(
+        msg = client.messages.create(
             body=message,
             from_=settings.TWILIO_PHONE_NUMBER,
-            to=tel
+            to=tel,
         )
-
-        return True
-
+        NotificationClient.objects.create(
+            commande=commande,
+            evenement=evenement,
+            canal=CanalNotification.SMS,
+            destinataire=tel,
+            message=message,
+            statut=StatutEnvoi.ENVOYE,
+        )
+        logger.info(
+            f"[SMS] Envoyé → {tel} | "
+            f"Commande: {commande.reference} | "
+            f"SID={msg.sid}"
+        )
     except Exception as e:
-        print("Erreur SMS:", e)
-        return False
+        NotificationClient.objects.create(
+            commande=commande,
+            evenement=evenement,
+            canal=CanalNotification.SMS,
+            destinataire=tel,
+            message=message,
+            statut=StatutEnvoi.ECHEC,
+            erreur=str(e),
+        )
+        logger.error(f"[SMS] Échec pour {commande.reference} : {e}")
 
-
-# ─────────────────────────────────────────
-# ENTRY POINT
-# ─────────────────────────────────────────
 
 def notifier_client(commande, evenement):
     """
-    Main entry point for sending notifications.
-    Dispatches to SMS and/or email based on vendor config.
+    Point d'entrée principal.
+    Appelé par le signal post_save sur Commande (statut en_transit).
     """
     canal = _get_canal(commande)
 
     if canal == 'none':
-        logger.info(f"[NOTIF] Channel disabled for vendor {commande.vendeur_id}")
+        logger.info(f"[NOTIF] Canal désactivé pour vendeur {commande.vendeur_id}")
         return
 
     lien = _lien_suivi(commande)
 
     if canal in ('sms', 'both'):
         _envoyer_sms(commande, evenement, lien)
-
-    # TODO: Add email sending if needed
-
-    try:
-        from twilio.rest import Client
-
-        client = Client(
-            settings.TWILIO_ACCOUNT_SID,
-            settings.TWILIO_AUTH_TOKEN
-        )
-
-        client.messages.create(
-            body=message,
-            from_=settings.TWILIO_PHONE_NUMBER,
-            to=tel
-        )
-
-        return True
-
-    except Exception as e:
-        print("Erreur SMS:", e)
-        return False

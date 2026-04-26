@@ -23,24 +23,18 @@ class TarifListCreateView(APIView):
             return Response({'detail': 'Accès réservé aux entreprises.'}, status=403)
 
         tarifs = Tarif.objects.filter(entreprise=entreprise).order_by('gouvernorat', 'poids_min')
-        serializer = TarifSerializer(tarifs, many=True)
-        return Response(serializer.data)
+        return Response(TarifSerializer(tarifs, many=True).data)
 
     def post(self, request):
         entreprise = get_entreprise(request.user)
         if not entreprise:
             return Response({'detail': 'Accès réservé aux entreprises.'}, status=403)
 
-        print("Données reçues par le backend :", request.data)  # ← Debug important
-
         serializer = TarifSerializer(data=request.data)
         if serializer.is_valid():
             tarif = serializer.save(entreprise=entreprise)
-            print(f"Tarif créé avec succès : {tarif}")
             return Response(TarifSerializer(tarif).data, status=status.HTTP_201_CREATED)
 
-        # Affichage clair des erreurs de validation
-        print("ERREURS DE VALIDATION :", serializer.errors)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
