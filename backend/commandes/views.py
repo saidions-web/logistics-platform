@@ -1,3 +1,5 @@
+# backend/commandes/views.py
+
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -9,9 +11,11 @@ from .models import Commande, StatutCommande
 from .serializers import (
     CommandeSerializer,
     CommandeCreateSerializer,
-    CommandeUpdateSerializer,
+    CommandeUpdateSerializer
 )
+
 from recommandation.models import Recommandation
+from accounts.models import EntrepriseProfile
 
 
 def is_vendeur(user):
@@ -23,10 +27,7 @@ class CommandeListCreateView(APIView):
 
     def get(self, request):
         if not is_vendeur(request.user):
-            return Response(
-                {'detail': 'Accès réservé aux vendeurs.'},
-                status=403
-            )
+            return Response({'detail': 'Accès réservé aux vendeurs.'}, status=403)
 
         commandes = Commande.objects.filter(vendeur=request.user)\
             .select_related('vendeur', 'vendeur__vendeur_profile')\
@@ -50,30 +51,17 @@ class CommandeListCreateView(APIView):
         commandes = commandes.order_by('-created_at')
         return Response(CommandeSerializer(commandes, many=True).data)
 
-   def post(self, request):
-    if not is_vendeur(request.user):
-        return Response(
-            {'detail': 'Accès réservé aux vendeurs.'},
-            status=403
-        )
+    def post(self, request):
+        if not is_vendeur(request.user):
+            return Response({'detail': 'Accès réservé aux vendeurs.'}, status=403)
 
-    serializer = CommandeCreateSerializer(data=request.data)
-    if not serializer.is_valid():
-        return Response(
-            serializer.errors,
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        serializer = CommandeCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    # ✅ CORRECTION SIMPLE :
-    # On crée la commande SANS entreprise (null)
-    # L'entreprise sera affectée après le scoring
-    # via SelectionManuelleView ou generer_recommandation
-    commande = serializer.save(vendeur=request.user)
+        commande = serializer.save(vendeur=request.user)
+        return Response(CommandeSerializer(commande).data, status=status.HTTP_201_CREATED)
 
-    return Response(
-        CommandeSerializer(commande).data,
-        status=status.HTTP_201_CREATED
-    )
 
 class CommandeDetailView(APIView):
     permission_classes = [IsAuthenticated]
@@ -83,61 +71,33 @@ class CommandeDetailView(APIView):
 
     def get(self, request, pk):
         if not is_vendeur(request.user):
-            return Response(
-                {'detail': 'Accès réservé aux vendeurs.'},
-                status=403
-            )
-        commande = Commande.objects\
-            .select_related('vendeur', 'vendeur__vendeur_profile')\
-            .prefetch_related('colis', 'historique')\
-            .get(pk=pk, vendeur=request.user)
+            return Response({'detail': 'Accès réservé aux vendeurs.'}, status=403)
+        commande = Commande.objects.select_related('vendeur', 'vendeur__vendeur_profile')\
+            .prefetch_related('colis', 'historique').get(pk=pk, vendeur=request.user)
         return Response(CommandeSerializer(commande).data)
 
     def patch(self, request, pk):
         if not is_vendeur(request.user):
-            return Response(
-                {'detail': 'Accès réservé aux vendeurs.'},
-                status=403
-            )
+            return Response({'detail': 'Accès réservé aux vendeurs.'}, status=403)
         commande = self._get_commande(pk, request.user)
-        serializer = CommandeUpdateSerializer(
-            commande,
-            data=request.data,
-            partial=True
-        )
+        serializer = CommandeUpdateSerializer(commande, data=request.data, partial=True)
         if serializer.is_valid():
             return Response(CommandeSerializer(serializer.save()).data)
-        return Response(
-            serializer.errors,
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, pk):
         if not is_vendeur(request.user):
-            return Response(
-                {'detail': 'Accès réservé aux vendeurs.'},
-                status=403
-            )
+            return Response({'detail': 'Accès réservé aux vendeurs.'}, status=403)
         commande = self._get_commande(pk, request.user)
         if commande.statut != StatutCommande.EN_ATTENTE:
             return Response(
-                {
-                    'detail': (
-                        'Impossible d\'annuler une commande '
-                        'déjà prise en charge.'
-                    )
-                },
+                {'detail': 'Impossible d\'annuler une commande déjà prise en charge.'},
                 status=400
             )
         commande.statut = StatutCommande.ANNULEE
         commande.save()
         return Response(
-            {
-                'message': (
-                    f'La commande {commande.reference} '
-                    f'a été annulée avec succès.'
-                )
-            },
+            {"message": f"La commande {commande.reference} a été annulée avec succès."},
             status=200
         )
 
@@ -146,10 +106,7 @@ class CommandeSuiviView(APIView):
     permission_classes = []
 
     def get(self, request, reference):
-        commande = get_object_or_404(
-            Commande,
-            reference=reference.upper()
-        )
+        commande = get_object_or_404(Commande, reference=reference.upper())
 
         historique = []
         for h in commande.historique.all().order_by('-date'):
@@ -157,6 +114,7 @@ class CommandeSuiviView(APIView):
                 'date': h.date,
                 'ancien_statut': h.ancien_statut,
                 'nouveau_statut': h.nouveau_statut,
+                'statut_label': commande.get_statut_display() if h.nouveau_statut == commande.statut else h.nouveau_statut,
                 'commentaire': h.commentaire or '',
             })
 
@@ -173,7 +131,7 @@ class CommandeSuiviView(APIView):
             'prix_livraison': str(commande.prix_livraison),
             'montant_a_collecter': str(commande.montant_a_collecter),
             'entreprise': {
-                'raison_sociale': commande.entreprise.raison_sociale
+                'raison_sociale': commande.entreprise.raison_sociale if commande.entreprise else None,
             } if commande.entreprise else None,
             'historique': historique,
             'created_at': commande.created_at,

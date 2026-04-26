@@ -41,7 +41,7 @@ def get_stats(entreprise, gouvernorat=None):
         # on retombe sur le taux global
         if gouvernorat:
             return get_stats(entreprise, gouvernorat=None)
-        return {'taux': 0.8, 'delai': 3}
+        return {'taux': 0.0, 'delai': 3}
 
     livrees = commandes.filter(statut=StatutCommande.LIVREE).count()
     taux = livrees / total

@@ -88,12 +88,28 @@ class LivreurTourneeStatutView(APIView):
         tournee.statut = nouveau_statut
  
         if nouveau_statut == StatutTournee.EN_COURS:
-
             tournee.heure_depart_reelle = timezone.now()
-
             livreur.statut = StatutLivreur.EN_TOURNEE
-
             livreur.save(update_fields=['statut'])
+
+            # ✅ AJOUT : mise à jour des commandes en EN_TRANSIT
+            from commandes.models import Commande, StatutCommande, HistoriqueStatut
+            for affectation in tournee.affectations.select_related('commande').all():
+                commande = affectation.commande
+                if commande.statut in [
+                    StatutCommande.EN_ATTENTE,
+                    StatutCommande.PRISE_CHARGE
+                ]:
+                    ancien = commande.statut
+                    commande.statut = StatutCommande.EN_TRANSIT
+                    commande.save()
+                    HistoriqueStatut.objects.create(
+                        commande=commande,
+                        ancien_statut=ancien,
+                        nouveau_statut=StatutCommande.EN_TRANSIT,
+                        commentaire=f"Tournée {tournee.reference} démarrée par le livreur",
+                    )
+
  
         elif nouveau_statut == StatutTournee.TERMINEE:
 

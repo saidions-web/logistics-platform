@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Route, Plus, ChevronDown, ChevronUp, Play, CheckCircle,
+import { Route, Plus, ChevronDown, ChevronUp,
          Trash2, ArrowUpDown, Zap, Package } from 'lucide-react'
 import { entrepriseApi } from '../../services/api'
 
@@ -209,21 +209,28 @@ function TourneeCard({ tournee, onRefresh }) {
           <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
             {tournee.statut === 'planifiee' && (
               <>
-                <button className="btn btn-secondary btn-sm" onClick={handleOptimiser} disabled={optimizing}>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={handleOptimiser}
+                  disabled={optimizing}
+                >
                   <Zap size={13} /> {optimizing ? 'Optimisation...' : 'Optimiser l\'ordre'}
                 </button>
-                <button className="btn btn-primary btn-sm" onClick={() => handleStatut('en_cours')}>
-                  <Play size={13} /> Démarrer
-                </button>
-                <button className="btn btn-ghost btn-sm" style={{ color: '#ef4444' }} onClick={handleDelete}>
+                {/* Bouton Démarrer supprimé — action réservée au livreur */}
+                <button
+                  className="btn btn-ghost btn-sm"
+                  style={{ color: '#ef4444' }}
+                  onClick={handleDelete}
+                >
                   <Trash2 size={13} /> Supprimer
                 </button>
               </>
             )}
+            {/* Bloc statut en_cours supprimé — Terminer réservé au livreur */}
             {tournee.statut === 'en_cours' && (
-              <button className="btn btn-primary btn-sm" onClick={() => handleStatut('terminee')}>
-                <CheckCircle size={13} /> Terminer
-              </button>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 0' }}>
+                🚚 Tournée en cours — en attente du livreur
+              </div>
             )}
             <span style={{ fontSize: 11, color: 'var(--text-muted)', alignSelf: 'center' }}>
               {tournee.statut === 'planifiee' ? '↕ Glissez-déposez pour réordonner' : ''}

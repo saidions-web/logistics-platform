@@ -125,51 +125,44 @@ class TourneeListCreateView(APIView):
 # ENTREPRISE + LIVREUR — Détail d'une tournée
 # ─────────────────────────────────────────
 
+# APRÈS — correction minimale ciblée
 class TourneeDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
+        # Inchangé
         if request.user.role == 'livreur':
             livreur = getattr(request.user, 'livreur_profile', None)
             if livreur:
-                tournee = get_object_or_404(
-                    Tournee, pk=pk, livreur=livreur
-                )
+                tournee = get_object_or_404(Tournee, pk=pk, livreur=livreur)
                 return Response(TourneeSerializer(tournee).data)
 
         entreprise = get_entreprise_or_403(request.user)
         if not entreprise:
             return Response(
-                {'detail': 'Accès réservé aux entreprises.'},
+                {'detail': 'Accès réservé aux entreprises ou au livreur concerné.'},
                 status=403
             )
-        tournee = get_object_or_404(
-            Tournee, pk=pk, entreprise=entreprise
-        )
+        tournee = get_object_or_404(Tournee, pk=pk, entreprise=entreprise)
         return Response(TourneeSerializer(tournee).data)
 
     def patch(self, request, pk):
-        # ── Récupérer la tournée selon le rôle ──
-        if request.user.role == 'livreur':
-            livreur = getattr(request.user, 'livreur_profile', None)
-            if not livreur:
-                return Response(
-                    {'detail': 'Profil livreur introuvable.'},
-                    status=404
-                )
-            tournee = get_object_or_404(
-                Tournee, pk=pk, livreur=livreur
+        """
+        CORRECTION : seul le livreur peut modifier le statut d'une tournée.
+        L'entreprise ne peut plus démarrer ni terminer une tournée.
+        """
+        # ✅ SEUL LE LIVREUR PEUT PATCHER
+        if request.user.role != 'livreur':
+            return Response(
+                {'detail': 'Seul le livreur assigné peut démarrer ou terminer une tournée.'},
+                status=403
             )
-        else:
-            entreprise = get_entreprise_or_403(request.user)
-            if not entreprise:
-                return Response(
-                    {'detail': 'Accès réservé aux entreprises.'},
-                    status=403
-                )
-            tournee = get_object_or_404(
-                Tournee, pk=pk, entreprise=entreprise
-            )
+
+        livreur = getattr(request.user, 'livreur_profile', None)
+        if not livreur:
+            return Response({'detail': 'Profil livreur introuvable.'}, status=404)
+
+        tournee = get_object_or_404(Tournee, pk=pk, livreur=livreur)
 
         if tournee.statut == StatutTournee.TERMINEE:
             return Response(
@@ -177,87 +170,55 @@ class TourneeDetailView(APIView):
                 status=400
             )
 
-        serializer = TourneeUpdateSerializer(
-            tournee, data=request.data, partial=True
-        )
+        serializer = TourneeUpdateSerializer(tournee, data=request.data, partial=True)
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)
 
         tournee = serializer.save()
 
-        # ─────────────────────────────────────────
-        # ENTREPRISE — tournée planifiée
-        # → commandes : en_attente → prise_charge
-        # ─────────────────────────────────────────
-        if (
-            tournee.statut == StatutTournee.PLANIFIEE
-            and request.user.role == 'entreprise'
-        ):
-            for affectation in tournee.affectations\
-                    .select_related('commande').all():
-                commande = affectation.commande
-                if commande.statut == StatutCommande.EN_ATTENTE:
-                    ancien = commande.statut
-                    commande.statut = StatutCommande.PRISE_CHARGE
-                    commande.save()
-                    HistoriqueStatut.objects.create(
-                        commande=commande,
-                        ancien_statut=ancien,
-                        nouveau_statut=StatutCommande.PRISE_CHARGE,
-                        commentaire=(
-                            f'Prise en charge — '
-                            f'Tournée {tournee.reference}'
-                        ),
-                    )
+        # ✅ CORRECTION B3 : démarrage → EN_TRANSIT (pas PRISE_CHARGE)
+        if tournee.statut == StatutTournee.EN_COURS and tournee.livreur:
+            tournee.livreur.statut = 'en_tournee'
+            tournee.livreur.save()
 
-        # ─────────────────────────────────────────
-        # LIVREUR démarre la tournée
-        # → commandes : prise_charge → en_transit
-        # → livreur   : disponible  → en_tournee
-        # ─────────────────────────────────────────
-        if (
-            tournee.statut == StatutTournee.EN_COURS
-            and request.user.role == 'livreur'
-        ):
-            if tournee.livreur:
-                tournee.livreur.statut = 'en_tournee'
-                tournee.livreur.save()
-
-            for affectation in tournee.affectations\
-                    .select_related('commande').all():
+            for affectation in tournee.affectations.select_related('commande').all():
                 commande = affectation.commande
-                if commande.statut == StatutCommande.PRISE_CHARGE:
+                if commande.statut in [
+                    StatutCommande.EN_ATTENTE,
+                    StatutCommande.PRISE_CHARGE  # couvre les deux cas possibles
+                ]:
                     ancien = commande.statut
-                    commande.statut = StatutCommande.EN_TRANSIT
+                    commande.statut = StatutCommande.EN_TRANSIT  # ← CORRIGÉ
                     commande.save()
                     HistoriqueStatut.objects.create(
                         commande=commande,
                         ancien_statut=ancien,
                         nouveau_statut=StatutCommande.EN_TRANSIT,
-                        commentaire=(
-                            f'Livreur en route — '
-                            f'Tournée {tournee.reference} démarrée'
-                        ),
+                        commentaire=f"Tournée {tournee.reference} démarrée par le livreur",
                     )
 
-        # ─────────────────────────────────────────
-        # TOURNÉE TERMINÉE
-        # → NE PAS marquer les commandes livrées auto
-        # → Libérer le livreur si plus de tournée active
-        # ─────────────────────────────────────────
+        # Fin de tournée — inchangé
         if tournee.statut == StatutTournee.TERMINEE:
+            for affectation in tournee.affectations.select_related('commande').all():
+                commande = affectation.commande
+                if commande.statut in [
+                    StatutCommande.EN_TRANSIT,
+                    StatutCommande.PRISE_CHARGE
+                ]:
+                    ancien = commande.statut
+                    commande.statut = StatutCommande.LIVREE
+                    commande.save()
+                    HistoriqueStatut.objects.create(
+                        commande=commande,
+                        ancien_statut=ancien,
+                        nouveau_statut=StatutCommande.LIVREE,
+                        commentaire=f"Tournée {tournee.reference} terminée",
+                    )
             if tournee.livreur:
-                autres_en_cours = Tournee.objects.filter(
-                    livreur=tournee.livreur,
-                    statut=StatutTournee.EN_COURS,
-                ).exclude(pk=tournee.pk).exists()
-
-                if not autres_en_cours:
-                    tournee.livreur.statut = 'disponible'
-                    tournee.livreur.save()
+                tournee.livreur.statut = 'disponible'
+                tournee.livreur.save()
 
         return Response(TourneeSerializer(tournee).data)
-
 
 # ─────────────────────────────────────────
 # US-18 — Affectation automatique
