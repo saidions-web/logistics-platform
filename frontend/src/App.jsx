@@ -25,6 +25,7 @@ import LivreursEntreprise  from './pages/entreprise/LivreursEntreprise'
 import TourneesEntreprise  from './pages/entreprise/TourneesEntreprise'
 import SuiviGPS            from './pages/entreprise/SuiviGPS'
 import Tarifs              from './pages/entreprise/Tarifs'
+import RapportEntreprise from './pages/entreprise/RapportEntreprise'
 
 
 // ─────────────────────────────
@@ -106,6 +107,9 @@ function AppLayout() {
           <Route path="/entreprise/suivi"
             element={<RoleRoute role="entreprise"><SuiviGPS /></RoleRoute>}
           />
+          <Route path="/entreprise/rapport"
+  element={<RoleRoute role="entreprise"><RapportEntreprise /></RoleRoute>}
+/>
 
           {/* Commun */}
           <Route path="/parametres" element={<Parametres />} />

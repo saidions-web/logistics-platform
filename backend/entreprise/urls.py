@@ -9,6 +9,7 @@ from .views import (
     LivreurListCreateView,
     LivreurDetailView,
     PreuveLivraisonCreateView,
+    EntrepriseRapportView
 )
 
 from .views_gps import (
@@ -44,6 +45,7 @@ urlpatterns = [
     # GPS & Navigation (Mobile Livreur)
     path('livreurs/gps/update/',                         LivreurGPSUpdateView.as_view(),    name='livreur-gps-update'),
     path('livreur/navigation/<int:affectation_id>/',     EtapeNavigationView.as_view(),     name='livreur-navigation'),
+    path('rapport/', EntrepriseRapportView.as_view(), name='rapport'),
 
     # Tournées du livreur
     path('livreur/tournees/<int:pk>/statut/',            LivreurTourneeStatutView.as_view(), name='livreur-tournee-statut'),

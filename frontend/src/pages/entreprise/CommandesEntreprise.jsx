@@ -201,7 +201,228 @@ function CommandeDetailModal({ commande, onClose }) {
     </div>
   )
 }
+function genererEtiquetteEntreprise(commande) {
+  try {
+    console.log("Commande complète :", commande)
+  console.log("Prix livraison :", commande.prix_livraison)
+    const dateActuelle = new Date()
+    const prixLivraison = parseFloat(commande.prix_livraison) || 0
+    const montantArticle = parseFloat(commande.montant_a_collecter) || 0
+    const total = montantArticle + prixLivraison
+    
+    const html = `
+              <!DOCTYPE html>
+              <html>
+              <head>
+              <meta charset="UTF-8">
+              <title>Étiquette ${commande.reference}</title>
 
+              <style>
+                body {
+                  font-family: Arial, sans-serif;
+                  background: #fff;
+                }
+
+                .etiquette {
+                  width: 10cm;
+                  height: 15cm;
+                  border: 2px solid #000;
+                  padding: 10px;
+                  display: flex;
+                  flex-direction: column;
+                  justify-content: space-between;
+                }
+
+                /* HEADER */
+                .header {
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: center;
+                  border-bottom: 2px solid #000;
+                  padding-bottom: 5px;
+                }
+
+                .logo {
+                  font-weight: bold;
+                  font-size: 12px;
+                }
+
+                .type {
+                  font-size: 11px;
+                  font-weight: bold;
+                  color: ${commande.type_livraison === 'express' ? 'red' : 'black'};
+                }
+
+                /* REFERENCE */
+                .reference {
+                  text-align: center;
+                  font-size: 20px;
+                  font-weight: bold;
+                  border: 2px solid #000;
+                  padding: 6px;
+                  margin: 8px 0;
+                }
+
+                /* DESTINATAIRE */
+                .bloc {
+                  margin: 6px 0;
+                }
+
+                .title {
+                  font-size: 10px;
+                  font-weight: bold;
+                  border-bottom: 1px solid #000;
+                  margin-bottom: 2px;
+                }
+
+                .nom {
+                  font-size: 13px;
+                  font-weight: bold;
+                }
+
+                .tel {
+                  font-size: 12px;
+                }
+
+                .adresse {
+                  font-size: 11px;
+                }
+
+                /* GOUVERNORAT */
+                .zone {
+                  text-align: center;
+                  font-size: 14px;
+                  font-weight: bold;
+                  border: 2px dashed #000;
+                  padding: 4px;
+                  margin: 6px 0;
+                }
+
+                /* INFOS COLIS */
+                .infos {
+                  display: flex;
+                  justify-content: space-between;
+                  font-size: 11px;
+                }
+
+                /* PRIX */
+                .prix {
+                  border-top: 2px solid #000;
+                  margin-top: 6px;
+                  padding-top: 6px;
+                  font-size: 12px;
+                }
+
+                .row {
+                  display: flex;
+                  justify-content: space-between;
+                }
+
+                .total {
+                  margin-top: 4px;
+                  padding: 4px;
+                  background: black;
+                  color: white;
+                  font-weight: bold;
+                }
+
+                /* BARCODE */
+                .barcode {
+                  text-align: center;
+                  font-family: monospace;
+                  font-size: 16px;
+                  letter-spacing: 2px;
+                  border-top: 1px dashed #000;
+                  padding-top: 6px;
+                }
+
+                /* FOOTER */
+                .footer {
+                  font-size: 9px;
+                  text-align: center;
+                  color: #666;
+                }
+
+              </style>
+              </head>
+
+              <body>
+
+              <div class="etiquette">
+
+                <!-- HEADER -->
+                <div class="header">
+                  <div class="logo">🚚 DELIVERY</div>
+                  <div class="type">${commande.type_livraison.toUpperCase()}</div>
+                </div>
+
+                <!-- REFERENCE -->
+                <div class="reference">${commande.reference}</div>
+
+                <!-- ZONE -->
+                <div class="zone">${commande.dest_gouvernorat}</div>
+
+                <!-- DESTINATAIRE -->
+                <div class="bloc">
+                  <div class="title">DESTINATAIRE</div>
+                  <div class="nom">${commande.dest_nom} ${commande.dest_prenom}</div>
+                  <div class="tel">${commande.dest_telephone}</div>
+                  <div class="adresse">${commande.dest_adresse}</div>
+                </div>
+
+                <!-- INFOS -->
+                <div class="infos">
+                  <div>Colis: <b>${commande.nombre_colis}</b></div>
+                  <div>Poids: <b>${commande.poids_total} kg</b></div>
+                </div>
+
+                <!-- PRIX -->
+                <div class="prix">
+                  <div class="row">
+                    <span>Article</span>
+                    <span>${montantArticle.toFixed(3)} TND</span>
+                  </div>
+                  <div class="row">
+                    <span>Livraison</span>
+                    <span>${prixLivraison.toFixed(3)} TND</span>
+                  </div>
+
+                  <div class="total row">
+                    <span>TOTAL</span>
+                    <span>${total.toFixed(3)} TND</span>
+                  </div>
+                </div>
+
+                <!-- BARCODE -->
+                <div class="barcode">*${commande.reference}*</div>
+
+                <!-- FOOTER -->
+                <div class="footer">
+                  ${dateActuelle.toLocaleDateString('fr-FR')}
+                </div>
+
+              </div>
+
+              </body>
+              </html>
+
+    `
+
+    // Ouvrir dans une nouvelle fenêtre et imprimer
+    const win = window.open('', '_blank', 'width=800,height=600')
+    win.document.write(html)
+    win.document.close()
+    win.focus()
+    
+    // Attendre que la page se charge puis lancer l'impression
+    setTimeout(() => {
+      win.print()
+    }, 250)
+  } catch (err) {
+    console.error('Erreur:', err)
+    alert("Erreur lors de la génération de l'étiquette d'expédition")
+  }
+}
 // ── Page principale ─────────────────────────────────────────────────────────
 export default function CommandesEntreprise() {
   const [commandes, setCommandes] = useState([])

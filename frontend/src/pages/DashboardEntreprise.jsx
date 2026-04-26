@@ -7,6 +7,7 @@ import {
 import { entrepriseApi } from '../services/api'
 import NotificationBell from '../components/NotificationBell'
 import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 
 const STATUT_BADGE = {
   en_attente:   'badge-warning',
@@ -30,6 +31,7 @@ export default function DashboardEntreprise() {
   const { user } = useAuth()
   const [data, setData]     = useState(null)
   const [loading, setLoading] = useState(true)
+  const navigate = useNavigate()
 
   const today = new Date().toLocaleDateString('fr-FR', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
@@ -118,9 +120,12 @@ export default function DashboardEntreprise() {
           </div>
 
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <button className="btn btn-secondary btn-sm">
-              <TrendingUp size={14} /> Rapport
-            </button>
+            <button
+  className="btn btn-secondary btn-sm"
+  onClick={() => navigate('/entreprise/rapport')}
+>
+  <TrendingUp size={14} /> Rapport
+</button>
             {/* ✅ NotificationBell déjà présent, champ is_read corrigé côté composant */}
             <NotificationBell />
           </div>
@@ -201,7 +206,7 @@ export default function DashboardEntreprise() {
               </tr>
             </thead>
             <tbody>
-              {recentes.map(c => (
+                {recentes.slice(0, 5).map(c => (
                 <tr key={c.id}>
                   <td>
                     <span style={{

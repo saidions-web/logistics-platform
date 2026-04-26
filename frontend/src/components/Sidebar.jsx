@@ -22,6 +22,7 @@ const navEntreprise = [
   { to: '/entreprise/livreurs',  icon: Users,           label: 'Mes livreurs'     },
   { to: '/entreprise/tournees',  icon: Route,           label: 'Tournées'         },
   { to: '/entreprise/suivi',     icon: MapPin,          label: 'Suivi GPS'        },
+
 ]
 
 const bottomNav = [

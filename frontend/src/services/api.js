@@ -92,6 +92,7 @@ export const retoursApi = {
 // ====================== ENTREPRISE ======================
 export const entrepriseApi = {
   dashboard: () => api.get('/entreprise/dashboard/'),
+  rapport: () => api.get('/entreprise/rapport/'),
 
   commandes:     (params = {}) => api.get('/entreprise/commandes/', { params }),
   changerStatut: (id, data)    => api.patch(`/entreprise/commandes/${id}/statut/`, data),

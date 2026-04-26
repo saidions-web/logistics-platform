@@ -385,3 +385,96 @@ class PreuveLivraisonCreateView(APIView):
         )
 
         return Response({'detail': 'Preuve de livraison enregistrée.'}, status=201)
+# backend/entreprise/views.py — ajouter cette vue
+
+class EntrepriseRapportView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        entreprise = get_entreprise_or_403(request.user)
+        if not entreprise:
+            return Response({'detail': 'Accès réservé aux entreprises.'}, status=403)
+
+        from recommandation.models import Recommandation
+        from tournees.models import Tournee, AffectationCommande
+        from django.db.models import Count, Q
+        from django.utils import timezone
+        from datetime import timedelta
+        import calendar
+
+        reco_ids = Recommandation.objects.filter(
+            entreprise_choisie=entreprise
+        ).values_list('commande_id', flat=True)
+
+        commandes = Commande.objects.filter(id__in=reco_ids)
+
+        # ── KPI globaux ──────────────────────────────────────────
+        total     = commandes.count()
+        livrees   = commandes.filter(statut='livree').count()
+        retournees = commandes.filter(statut='retournee').count()
+        annulees  = commandes.filter(statut='annulee').count()
+        en_cours  = commandes.filter(statut__in=['en_attente', 'prise_charge', 'en_transit']).count()
+
+        taux_reussite  = round(livrees / total * 100, 1) if total > 0 else 0
+        taux_retour    = round(retournees / total * 100, 1) if total > 0 else 0
+
+        # ── Évolution mensuelle sur 6 mois ───────────────────────
+        aujourd_hui = timezone.now()
+        evolution_mensuelle = []
+        for i in range(5, -1, -1):
+            mois_cible = aujourd_hui - timedelta(days=i * 30)
+            annee = mois_cible.year
+            mois  = mois_cible.month
+            qs = commandes.filter(created_at__year=annee, created_at__month=mois)
+            evolution_mensuelle.append({
+                'mois':      f"{calendar.month_abbr[mois]} {annee}",
+                'total':     qs.count(),
+                'livrees':   qs.filter(statut='livree').count(),
+                'retournees': qs.filter(statut='retournee').count(),
+            })
+
+        # ── Répartition par gouvernorat ──────────────────────────
+        par_gouvernorat = list(
+            commandes.values('dest_gouvernorat')
+            .annotate(total=Count('id'))
+            .order_by('-total')[:8]
+        )
+
+        # ── Performance par livreur ──────────────────────────────
+        livreurs = Livreur.objects.filter(entreprise=entreprise)
+        perf_livreurs = []
+        for livreur in livreurs:
+            tournees_livreur = Tournee.objects.filter(livreur=livreur)
+            affectations = AffectationCommande.objects.filter(tournee__in=tournees_livreur)
+            nb_total   = affectations.count()
+            nb_livrees = affectations.filter(commande__statut='livree').count()
+            perf_livreurs.append({
+                'nom':          livreur.nom_complet,
+                'total':        nb_total,
+                'livrees':      nb_livrees,
+                'taux':         round(nb_livrees / nb_total * 100, 1) if nb_total > 0 else 0,
+                'nb_tournees':  tournees_livreur.filter(statut='terminee').count(),
+            })
+        perf_livreurs.sort(key=lambda x: x['taux'], reverse=True)
+
+        # ── Tournées par statut ──────────────────────────────────
+        tournees_stats = {
+            'planifiees': Tournee.objects.filter(entreprise=entreprise, statut='planifiee').count(),
+            'en_cours':   Tournee.objects.filter(entreprise=entreprise, statut='en_cours').count(),
+            'terminees':  Tournee.objects.filter(entreprise=entreprise, statut='terminee').count(),
+            'annulees':   Tournee.objects.filter(entreprise=entreprise, statut='annulee').count(),
+        }
+
+        return Response({
+            'kpi': {
+                'total': total, 'livrees': livrees,
+                'retournees': retournees, 'annulees': annulees,
+                'en_cours': en_cours,
+                'taux_reussite': taux_reussite,
+                'taux_retour': taux_retour,
+            },
+            'evolution_mensuelle': evolution_mensuelle,
+            'par_gouvernorat':    par_gouvernorat,
+            'perf_livreurs':      perf_livreurs,
+            'tournees_stats':     tournees_stats,
+        })
