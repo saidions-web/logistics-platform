@@ -421,7 +421,7 @@ class EntrepriseRapportView(APIView):
         # ── Évolution mensuelle sur 6 mois ───────────────────────
         aujourd_hui = timezone.now()
         evolution_mensuelle = []
-        for i in range(5, -1, -1):
+        for i in range(2, -1, -1):
             mois_cible = aujourd_hui - timedelta(days=i * 30)
             annee = mois_cible.year
             mois  = mois_cible.month

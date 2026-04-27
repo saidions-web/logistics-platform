@@ -3,6 +3,8 @@ from .views import (
     CommandeListCreateView,
     CommandeDetailView,
     CommandeSuiviView,
+    VendeurRapportView,       # ← ajouter
+
 )
 
 urlpatterns = [
@@ -14,4 +16,6 @@ urlpatterns = [
 
     # Suivi public par référence
     path('suivi/<str:reference>/', CommandeSuiviView.as_view()),  # GET
+    path('rapport/',VendeurRapportView.as_view()),  # ← ajouter
+
 ]

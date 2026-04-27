@@ -5,10 +5,13 @@ import {
   LogOut, MapPin, ClipboardList, Route, DollarSign, RotateCcw
 } from 'lucide-react'
 import NotificationBell from './NotificationBell'
+// frontend/src/components/Sidebar.jsx — ajouter au menu vendeur
 
-// ── Menu Vendeur ───────────────────────────────────────────────────────────
+import { BarChart2 } from 'lucide-react'
+
 const navVendeur = [
   { to: '/dashboard',  icon: LayoutDashboard, label: 'Tableau de bord'    },
+
   { to: '/colis',      icon: Package,         label: 'Mes commandes'      },
   { to: '/livraisons', icon: RotateCcw,       label: 'Retours'            },
   { to: '/tracking',   icon: MapPin,          label: 'Suivi en temps réel'},

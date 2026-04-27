@@ -79,6 +79,8 @@ export const commandesApi = {
   update: (id, data) => api.patch(`/commandes/${id}/`, data),
   cancel: (id)       => api.delete(`/commandes/${id}/`),
   suivi:  (ref)      => api.get(`/commandes/suivi/${ref}/`),
+  rapport: ()       => api.get('/commandes/rapport/'),  // ← ajouter
+
 };
 
 // ====================== RETOURS ======================

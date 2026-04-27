@@ -136,3 +136,116 @@ class CommandeSuiviView(APIView):
             'historique': historique,
             'created_at': commande.created_at,
         })
+# backend/commandes/views.py — ajouter cette vue à la fin du fichier
+
+class VendeurRapportView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not is_vendeur(request.user):
+            return Response({'detail': 'Accès réservé aux vendeurs.'}, status=403)
+
+        from django.db.models import Count, Sum, Q
+        from django.utils import timezone
+        from datetime import timedelta
+        import calendar
+
+        commandes = Commande.objects.filter(vendeur=request.user)
+
+        # ── KPI globaux ──────────────────────────────────────────
+        total      = commandes.count()
+        livrees    = commandes.filter(statut='livree').count()
+        retournees = commandes.filter(statut='retournee').count()
+        annulees   = commandes.filter(statut='annulee').count()
+        en_attente = commandes.filter(statut='en_attente').count()
+        en_transit = commandes.filter(
+            statut__in=['prise_charge', 'en_transit']
+        ).count()
+
+        taux_reussite = round(livrees / total * 100, 1) if total > 0 else 0
+        taux_retour   = round(retournees / total * 100, 1) if total > 0 else 0
+
+        montant_collecte = commandes.filter(
+            statut='livree'
+        ).aggregate(
+            total=Sum('montant_a_collecter')
+        )['total'] or 0
+
+        montant_perdu = commandes.filter(
+            statut__in=['retournee', 'annulee']
+        ).aggregate(
+            total=Sum('montant_a_collecter')
+        )['total'] or 0
+
+        # ── Évolution mensuelle sur 6 mois ───────────────────────
+        aujourd_hui = timezone.now()
+        evolution_mensuelle = []
+        for i in range(2, -1, -1):
+            mois_cible = aujourd_hui - timedelta(days=i * 30)
+            annee = mois_cible.year
+            mois  = mois_cible.month
+            qs = commandes.filter(
+                created_at__year=annee,
+                created_at__month=mois
+            )
+            evolution_mensuelle.append({
+                'mois':       f"{calendar.month_abbr[mois]} {annee}",
+                'total':      qs.count(),
+                'livrees':    qs.filter(statut='livree').count(),
+                'retournees': qs.filter(statut='retournee').count(),
+                'annulees':   qs.filter(statut='annulee').count(),
+                'montant':    float(
+                    qs.filter(statut='livree').aggregate(
+                        s=Sum('montant_a_collecter')
+                    )['s'] or 0
+                ),
+            })
+
+        # ── Répartition par gouvernorat ──────────────────────────
+        par_gouvernorat = list(
+            commandes.values('dest_gouvernorat')
+            .annotate(
+                total=Count('id'),
+                livrees=Count('id', filter=Q(statut='livree')),
+            )
+            .order_by('-total')[:8]
+        )
+
+        # ── Répartition par type de livraison ────────────────────
+        par_type = list(
+            commandes.values('type_livraison')
+            .annotate(total=Count('id'))
+            .order_by('-total')
+        )
+
+        # ── Top 5 gouvernorats en retour ─────────────────────────
+        top_retours = list(
+            commandes.filter(statut='retournee')
+            .values('dest_gouvernorat')
+            .annotate(total=Count('id'))
+            .order_by('-total')[:5]
+        )
+
+        # ── Commandes récentes (7 derniers jours) ────────────────
+        il_y_a_7j = aujourd_hui - timedelta(days=7)
+        recentes_count = commandes.filter(created_at__gte=il_y_a_7j).count()
+
+        return Response({
+            'kpi': {
+                'total':            total,
+                'livrees':          livrees,
+                'retournees':       retournees,
+                'annulees':         annulees,
+                'en_attente':       en_attente,
+                'en_transit':       en_transit,
+                'taux_reussite':    taux_reussite,
+                'taux_retour':      taux_retour,
+                'montant_collecte': float(montant_collecte),
+                'montant_perdu':    float(montant_perdu),
+                'recentes_7j':      recentes_count,
+            },
+            'evolution_mensuelle': evolution_mensuelle,
+            'par_gouvernorat':     par_gouvernorat,
+            'par_type':            par_type,
+            'top_retours':         top_retours,
+        })

@@ -94,13 +94,7 @@ export default function RapportEntreprise() {
         </button>
       </div>
 
-      {/* KPI */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 28 }}>
-        <KpiCard label="Total commandes"   value={kpi.total}          color="#1E4D7B" icon={Package}     />
-        <KpiCard label="Livrées"           value={kpi.livrees}        color="#16a34a" icon={CheckCircle} />
-        <KpiCard label="Taux de réussite"  value={kpi.taux_reussite}  color="#2563A8" icon={TrendingUp}  suffix="%" />
-        <KpiCard label="Retournées"        value={kpi.retournees}     color="#ef4444" icon={RotateCcw}   />
-      </div>
+      
 
       {/* Ligne 2 : Évolution mensuelle + Répartition statuts */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20, marginBottom: 20 }}>
@@ -108,7 +102,7 @@ export default function RapportEntreprise() {
         {/* Graphe lignes — évolution mensuelle */}
         <div className="card">
           <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, marginBottom: 20 }}>
-            Évolution sur 6 mois
+            Évolution sur 3 mois
           </h3>
           <ResponsiveContainer width="100%" height={240}>
             <LineChart data={evolution_mensuelle} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
@@ -201,68 +195,7 @@ export default function RapportEntreprise() {
       </div>
 
       {/* Ligne 4 : Performance livreurs */}
-      {perf_livreurs.length > 0 && (
-        <div className="card">
-          <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, marginBottom: 20 }}>
-            Performance des livreurs
-          </h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={perf_livreurs} margin={{ top: 5, right: 20, bottom: 30, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis dataKey="nom" tick={{ fontSize: 12 }} angle={-20} textAnchor="end" />
-              <YAxis tick={{ fontSize: 12 }} />
-              <Tooltip
-                formatter={(value, name) => [
-                  name === 'taux' ? `${value}%` : value,
-                  name === 'taux' ? 'Taux de réussite' : name === 'livrees' ? 'Livrées' : 'Total'
-                ]}
-              />
-              <Legend />
-              <Bar dataKey="total"   name="Total"   fill="#1E4D7B" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="livrees" name="Livrées" fill="#16a34a" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-
-          {/* Tableau récapitulatif */}
-          <div className="table-wrapper" style={{ marginTop: 20 }}>
-            <table>
-              <thead>
-                <tr>
-                  <th>Livreur</th>
-                  <th>Tournées terminées</th>
-                  <th>Livraisons totales</th>
-                  <th>Livrées</th>
-                  <th>Taux de réussite</th>
-                </tr>
-              </thead>
-              <tbody>
-                {perf_livreurs.map((l, i) => (
-                  <tr key={i}>
-                    <td style={{ fontWeight: 600 }}>{l.nom}</td>
-                    <td style={{ textAlign: 'center' }}>{l.nb_tournees}</td>
-                    <td style={{ textAlign: 'center' }}>{l.total}</td>
-                    <td style={{ textAlign: 'center' }}>{l.livrees}</td>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ flex: 1, height: 6, background: 'var(--bg3)', borderRadius: 3, overflow: 'hidden' }}>
-                          <div style={{
-                            width: `${l.taux}%`, height: '100%', borderRadius: 3,
-                            background: l.taux >= 80 ? '#16a34a' : l.taux >= 60 ? '#d97706' : '#ef4444',
-                          }} />
-                        </div>
-                        <span style={{ fontSize: 13, fontWeight: 700, minWidth: 40, color: l.taux >= 80 ? '#16a34a' : l.taux >= 60 ? '#d97706' : '#ef4444' }}>
-                          {l.taux}%
-                        </span>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
+      
     </div>
   )
 }

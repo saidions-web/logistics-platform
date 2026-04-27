@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { commandesApi } from '../services/api'
 import NotificationBell from '../components/NotificationBell' // ✅ ajouté
+import { useNavigate } from 'react-router-dom'
 
 const STATUT_BADGE = {
   en_attente:   'badge-warning',
@@ -27,6 +28,8 @@ const STATUT_LABEL = {
 
 export default function DashboardVendeur() {
   const { user } = useAuth()
+  const navigate = useNavigate()        // ← AJOUT
+
   const [commandes, setCommandes] = useState([])
   const [loading, setLoading]     = useState(true)
 
@@ -90,10 +93,16 @@ export default function DashboardVendeur() {
           </div>
 
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            
+             <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => navigate('/rapport')}
+                >
+                  <TrendingUp size={14} /> Rapport
+              </button>
             <a href="/colis" className="btn btn-primary btn-sm">
               <Package size={14} /> Nouvelle commande
             </a>
+               
             {/* ✅ Cloche notifications ajoutée */}
             <NotificationBell />
           </div>

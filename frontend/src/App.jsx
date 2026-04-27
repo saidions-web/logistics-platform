@@ -18,6 +18,7 @@ import Parametres from './pages/Parametres'
 import Colis         from './pages/Colis'
 import RetourVendeur from './pages/RetourVendeur'
 import Tracking      from './pages/Tracking'
+import RapportVendeur from './pages/RapportVendeur'
 
 // Entreprise
 import CommandesEntreprise from './pages/entreprise/CommandesEntreprise'
@@ -89,6 +90,9 @@ function AppLayout() {
           />
           <Route path="/tracking"
             element={<RoleRoute role="vendeur"><Tracking /></RoleRoute>}
+          />
+          <Route path="/rapport"
+            element={<RoleRoute role="vendeur"><RapportVendeur /></RoleRoute>}
           />
 
           {/* Entreprise */}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Package, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
+import { Package, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, X, MapPin, Phone, Box, TrendingUp, Calendar, Tag } from 'lucide-react'
 import { entrepriseApi } from '../../services/api'
 import RetourModal from './RetourModal'
 
@@ -23,33 +23,31 @@ const STATUT_LABEL = {
 
 const TRANSITIONS = {
   en_attente:   ['prise_charge', 'annulee'],
-  prise_charge: ['en_transit',   'retournee'],
-  en_transit:   ['livree',       'retournee'],
+  prise_charge: ['en_transit', 'retournee'],
+  en_transit:   ['livree', 'retournee'],
 }
 
-const TYPES_LIVRAISON = {
-  standard: 'Standard', 
-  express: 'Express',
-  jour_j: 'Jour J', 
-  nuit: 'Nuit', 
-  point_relai: 'Point relais',
+const STATUT_COLORS = {
+  en_attente:   { bg: '#fffbeb', color: '#b45309', dot: '#d97706' },
+  prise_charge: { bg: '#eff6ff', color: '#1d4ed8', dot: '#3b82f6' },
+  en_transit:   { bg: '#f5f3ff', color: '#6d28d9', dot: '#8b5cf6' },
+  livree:       { bg: '#f0fdf4', color: '#15803d', dot: '#22c55e' },
+  retournee:    { bg: '#fef2f2', color: '#b91c1c', dot: '#ef4444' },
+  annulee:      { bg: '#f9fafb', color: '#374151', dot: '#9ca3af' },
 }
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50]
 
-// ── Pagination ─────────────────────────────────────────────────────────────
+// ── Pagination compacte ───────────────────────────────────────────────────
 function Pagination({ page, totalPages, total, pageSize, onPageChange, onPageSizeChange }) {
   if (total === 0) return null
-
   const from = (page - 1) * pageSize + 1
-  const to   = Math.min(page * pageSize, total)
+  const to = Math.min(page * pageSize, total)
 
   const getPages = () => {
-    const pages = []
-    const delta = 2
-    const left  = Math.max(1, page - delta)
+    const pages = [], delta = 1
+    const left = Math.max(1, page - delta)
     const right = Math.min(totalPages, page + delta)
-
     if (left > 1) { pages.push(1); if (left > 2) pages.push('...') }
     for (let i = left; i <= right; i++) pages.push(i)
     if (right < totalPages) { if (right < totalPages - 1) pages.push('...'); pages.push(totalPages) }
@@ -59,371 +57,397 @@ function Pagination({ page, totalPages, total, pageSize, onPageChange, onPageSiz
   return (
     <div style={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      padding: '14px 20px', borderTop: '1px solid var(--border)',
-      flexWrap: 'wrap', gap: 12,
+      padding: '12px 20px', borderTop: '1px solid var(--border)',
+      flexWrap: 'wrap', gap: 10, background: 'var(--bg3)',
+      borderRadius: '0 0 12px 12px',
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-        <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-          {from}–{to} sur <strong>{total}</strong> commandes
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+          <strong style={{ color: 'var(--text)' }}>{from}–{to}</strong> sur {total}
         </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Lignes :</span>
-          <select 
-            value={pageSize} 
-            onChange={e => onPageSizeChange(Number(e.target.value))}
-            style={{ fontSize: 12, padding: '3px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }}
-          >
-            {PAGE_SIZE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
+        <select value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))}
+          style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg2)', color: 'var(--text)', cursor: 'pointer' }}>
+          {PAGE_SIZE_OPTIONS.map(s => <option key={s} value={s}>{s} / page</option>)}
+        </select>
       </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-        <button onClick={() => onPageChange(1)} disabled={page === 1} style={{ minWidth: 32, height: 32, borderRadius: 7, border: '1px solid var(--border)', background: 'transparent' }}>
-          <ChevronsLeft size={14} />
-        </button>
-        <button onClick={() => onPageChange(page - 1)} disabled={page === 1} style={{ minWidth: 32, height: 32, borderRadius: 7, border: '1px solid var(--border)', background: 'transparent' }}>
-          <ChevronLeft size={14} />
-        </button>
-
+      <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+        {[
+          { icon: ChevronsLeft, action: () => onPageChange(1), disabled: page === 1 },
+          { icon: ChevronLeft, action: () => onPageChange(page - 1), disabled: page === 1 },
+        ].map(({ icon: Icon, action, disabled }, i) => (
+          <PBtn key={i} onClick={action} disabled={disabled}><Icon size={13} /></PBtn>
+        ))}
         {getPages().map((p, i) =>
-          p === '...' ? (
-            <span key={`dots-${i}`} style={{ padding: '0 6px', color: 'var(--text-muted)' }}>…</span>
-          ) : (
-            <button
-              key={p}
-              onClick={() => onPageChange(p)}
-              style={{
-                minWidth: 32, height: 32, borderRadius: 7,
-                fontWeight: p === page ? 700 : 500,
-                background: p === page ? 'var(--accent)' : 'transparent',
-                color: p === page ? '#fff' : 'var(--text)',
-                border: p === page ? 'none' : '1px solid var(--border)'
-              }}
-            >
-              {p}
-            </button>
-          )
+          p === '...'
+            ? <span key={`d${i}`} style={{ padding: '0 4px', color: 'var(--text-muted)', fontSize: 12 }}>…</span>
+            : <PBtn key={p} onClick={() => onPageChange(p)} active={p === page}>{p}</PBtn>
         )}
-
-        <button onClick={() => onPageChange(page + 1)} disabled={page === totalPages} style={{ minWidth: 32, height: 32, borderRadius: 7, border: '1px solid var(--border)', background: 'transparent' }}>
-          <ChevronRight size={14} />
-        </button>
-        <button onClick={() => onPageChange(totalPages)} disabled={page === totalPages} style={{ minWidth: 32, height: 32, borderRadius: 7, border: '1px solid var(--border)', background: 'transparent' }}>
-          <ChevronsRight size={14} />
-        </button>
+        {[
+          { icon: ChevronRight, action: () => onPageChange(page + 1), disabled: page === totalPages },
+          { icon: ChevronsRight, action: () => onPageChange(totalPages), disabled: page === totalPages },
+        ].map(({ icon: Icon, action, disabled }, i) => (
+          <PBtn key={`r${i}`} onClick={action} disabled={disabled}><Icon size={13} /></PBtn>
+        ))}
       </div>
     </div>
   )
 }
 
-// ── Modal Détails Commande ─────────────────────────────────────────────────
+function PBtn({ onClick, disabled, active, children }) {
+  return (
+    <button onClick={onClick} disabled={disabled} style={{
+      minWidth: 30, height: 30, borderRadius: 6, fontSize: 12, fontWeight: active ? 700 : 500,
+      border: active ? 'none' : '1px solid var(--border)',
+      background: active ? 'var(--accent)' : 'transparent',
+      color: active ? '#fff' : disabled ? '#d1d5db' : 'var(--text)',
+      cursor: disabled ? 'not-allowed' : 'pointer',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px',
+    }}>{children}</button>
+  )
+}
+
+// ── Modal détail commande amélioré ────────────────────────────────────────
 function CommandeDetailModal({ commande, onClose }) {
   if (!commande) return null
+  const sc = STATUT_COLORS[commande.statut] || STATUT_COLORS.en_attente
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 720, width: '95%' }} onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <h3>Détails de la commande <span style={{ fontFamily: 'monospace', color: 'var(--accent)' }}>{commande.reference}</span></h3>
-          <button className="modal-close" onClick={onClose}>✕</button>
-        </div>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: 'var(--bg2)',
+        borderRadius: 20,
+        width: '95%',
+        maxWidth: 680,
+        maxHeight: '90vh',
+        overflowY: 'auto',
+        boxShadow: '0 24px 64px rgba(11,22,40,0.18)',
+        animation: 'fadeUp 0.3s cubic-bezier(0.16,1,0.3,1)',
+        border: '1px solid var(--border)',
+      }}>
 
-        <div style={{ padding: 24, maxHeight: '78vh', overflowY: 'auto' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20 }}>
-            
-            {/* Destinataire */}
+        {/* ── Header avec statut ── */}
+        <div style={{
+          background: sc.bg,
+          borderBottom: `1px solid ${sc.dot}30`,
+          borderRadius: '20px 20px 0 0',
+          padding: '24px 28px',
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: 16,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            {/* Status dot animé */}
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              <div style={{
+                width: 48, height: 48, borderRadius: 14,
+                background: `${sc.dot}20`,
+                border: `2px solid ${sc.dot}40`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <div style={{ width: 14, height: 14, borderRadius: '50%', background: sc.dot }} />
+              </div>
+              {commande.statut === 'en_transit' && (
+                <div style={{
+                  position: 'absolute', inset: -4,
+                  borderRadius: 18, border: `2px solid ${sc.dot}30`,
+                  animation: 'pulse 2s infinite',
+                }} />
+              )}
+            </div>
             <div>
-              <h4 style={{ marginBottom: 12, color: '#1e40af' }}>Destinataire</h4>
-              <div style={{ background: '#f8fafc', padding: 16, borderRadius: 12, border: '1px solid #e2e8f0' }}>
-                <p style={{ fontSize: 16, fontWeight: 600 }}>{commande.dest_nom} {commande.dest_prenom}</p>
-                <p style={{ color: '#64748b' }}>{commande.dest_telephone}</p>
-                <p style={{ marginTop: 8 }}>{commande.dest_adresse}</p>
-                <p style={{ fontWeight: 500 }}>{commande.dest_gouvernorat}</p>
+              <div style={{ fontSize: 11, fontWeight: 600, color: sc.color, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>
+                {STATUT_LABEL[commande.statut] || commande.statut}
+              </div>
+              <div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 20, color: 'var(--navy-900)', letterSpacing: 1 }}>
+                {commande.reference}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
+                Créée le {new Date(commande.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
               </div>
             </div>
-
-            {/* Boutique du Vendeur */}
-            <div>
-              <h4 style={{ marginBottom: 12, color: '#1e40af' }}>Boutique du Vendeur</h4>
-              {commande.boutique && Object.keys(commande.boutique).length > 0 ? (
-                <div style={{ background: '#f8fafc', padding: 16, borderRadius: 12, border: '1px solid #e2e8f0' }}>
-                  <p style={{ fontWeight: 600 }}>{commande.boutique.nom_boutique}</p>
-                  <p style={{ color: '#64748b' }}>{commande.vendeur_nom_complet || 'Vendeur inconnu'}</p>
-                  <p style={{ marginTop: 4 }}>{commande.boutique.secteur}</p>
-                  <p style={{ color: '#64748b' }}>{commande.boutique.gouvernorat}</p>
-                </div>
-              ) : (
-                <div style={{ background: '#f8fafc', padding: 16, borderRadius: 12, border: '1px solid #e2e8f0', color: '#64748b' }}>
-                  Informations boutique non disponibles
-                </div>
-              )}
-            </div>
           </div>
-
-          {/* Colis */}
-          <div style={{ marginTop: 28 }}>
-            <h4 style={{ marginBottom: 12, color: '#1e40af' }}>Colis ({commande.nombre_colis || 0})</h4>
-            <div style={{ background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-              {commande.colis && commande.colis.length > 0 ? (
-                commande.colis.map((colis, i) => (
-                  <div key={i} style={{ padding: '14px 18px', borderBottom: i < commande.colis.length - 1 ? '1px solid #e2e8f0' : 'none', display: 'flex', justifyContent: 'space-between' }}>
-                    <div>
-                      <strong>{colis.description}</strong>
-                      {colis.fragile && <span style={{ marginLeft: 10, color: '#ef4444' }}> ● Fragile</span>}
-                    </div>
-                    <div style={{ fontWeight: 600 }}>{colis.poids} kg</div>
-                  </div>
-                ))
-              ) : (
-                <div style={{ padding: 20, textAlign: 'center', color: '#64748b' }}>Aucun colis enregistré</div>
-              )}
-            </div>
-          </div>
-
-          {/* Montants */}
-          <div style={{ marginTop: 24, display: 'flex', gap: 16 }}>
-            <div style={{ flex: 1, background: '#fefce8', padding: 18, borderRadius: 12 }}>
-              <p style={{ color: '#854d0e', fontSize: 13 }}>Montant à collecter</p>
-              <p style={{ fontSize: 24, fontWeight: 700, color: '#854d0e' }}>{commande.montant_a_collecter} TND</p>
-            </div>
-            <div style={{ flex: 1, background: '#f0fdf4', padding: 18, borderRadius: 12 }}>
-              <p style={{ color: '#166534', fontSize: 13 }}>Prix de livraison</p>
-              <p style={{ fontSize: 24, fontWeight: 700, color: '#166534' }}>{commande.prix_livraison || 0} TND</p>
-            </div>
-          </div>
+          <button onClick={onClose} style={{
+            width: 36, height: 36, borderRadius: 10, border: `1px solid ${sc.dot}30`,
+            background: `${sc.dot}10`, color: sc.color,
+            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 16, fontWeight: 600, flexShrink: 0,
+          }}>✕</button>
         </div>
 
-        <div style={{ padding: '16px 24px', borderTop: '1px solid #e2e8f0', textAlign: 'right' }}>
+        {/* ── Body ── */}
+        <div style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+          {/* Montants en haut — info principale */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div style={{
+              background: 'linear-gradient(135deg, #1e4d7b, #2563a8)',
+              borderRadius: 14, padding: '18px 20px', color: '#fff',
+            }}>
+              <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                Montant à collecter
+              </div>
+              <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: -0.5 }}>
+                {parseFloat(commande.montant_a_collecter).toFixed(3)}
+                <span style={{ fontSize: 14, fontWeight: 500, opacity: 0.7, marginLeft: 4 }}>TND</span>
+              </div>
+            </div>
+            <div style={{
+              background: 'var(--bg3)', borderRadius: 14, padding: '18px 20px',
+              border: '1px solid var(--border)',
+            }}>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                Prix livraison
+              </div>
+              <div style={{ fontSize: 26, fontWeight: 800, color: '#16a34a', letterSpacing: -0.5 }}>
+                {parseFloat(commande.prix_livraison || 0).toFixed(3)}
+                <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-muted)', marginLeft: 4 }}>TND</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Destinataire */}
+          <Section icon={<Phone size={15} />} title="Destinataire">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
+              <InfoRow label="Nom complet" value={`${commande.dest_nom} ${commande.dest_prenom}`} bold />
+              <InfoRow label="Téléphone" value={commande.dest_telephone} />
+              <InfoRow label="Gouvernorat" value={commande.dest_gouvernorat} />
+              <InfoRow label="Type livraison" value={commande.type_livraison?.replace('_', ' ')} />
+            </div>
+            {commande.dest_adresse && (
+              <div style={{
+                marginTop: 10, padding: '10px 14px', background: 'var(--bg3)',
+                borderRadius: 8, display: 'flex', gap: 8, alignItems: 'flex-start',
+              }}>
+                <MapPin size={14} style={{ color: 'var(--text-muted)', marginTop: 2, flexShrink: 0 }} />
+                <span style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
+                  {commande.dest_adresse}
+                </span>
+              </div>
+            )}
+          </Section>
+
+          {/* Boutique vendeur */}
+          {commande.boutique && (
+            <Section icon={<Tag size={15} />} title="Boutique expéditrice">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
+                <InfoRow label="Boutique" value={commande.boutique.nom_boutique} bold />
+                <InfoRow label="Vendeur" value={commande.vendeur_nom_complet} />
+                <InfoRow label="Secteur" value={commande.boutique.secteur} />
+                <InfoRow label="Gouvernorat" value={commande.boutique.gouvernorat} />
+              </div>
+            </Section>
+          )}
+
+          {/* Colis */}
+          {commande.colis?.length > 0 && (
+            <Section icon={<Box size={15} />} title={`Colis · ${commande.colis.length}`}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {commande.colis.map((c, i) => (
+                  <div key={c.id} style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '10px 14px', background: 'var(--bg3)', borderRadius: 8,
+                    border: '1px solid var(--border)',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div style={{
+                        width: 28, height: 28, borderRadius: 8,
+                        background: 'var(--accent)', color: '#fff',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 11, fontWeight: 700,
+                      }}>{i + 1}</div>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{c.description}</div>
+                        {c.fragile && (
+                          <span style={{ fontSize: 11, color: '#d97706', fontWeight: 600 }}>⚠ Fragile</span>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)' }}>
+                      {c.poids} kg
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{
+          padding: '16px 28px', borderTop: '1px solid var(--border)',
+          display: 'flex', justifyContent: 'flex-end',
+          background: 'var(--bg3)', borderRadius: '0 0 20px 20px',
+        }}>
           <button className="btn btn-secondary" onClick={onClose}>Fermer</button>
         </div>
       </div>
     </div>
   )
 }
+
+function Section({ icon, title, children }) {
+  return (
+    <div>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 7,
+        fontSize: 11, fontWeight: 700, color: 'var(--text-muted)',
+        textTransform: 'uppercase', letterSpacing: 1,
+        marginBottom: 12, paddingBottom: 8,
+        borderBottom: '1px solid var(--border)',
+      }}>
+        <span style={{ color: 'var(--accent)' }}>{icon}</span>
+        {title}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function InfoRow({ label, value, bold }) {
+  return (
+    <div style={{ padding: '8px 0', borderBottom: '1px solid var(--border-light)' }}>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: 13, fontWeight: bold ? 700 : 500, color: 'var(--text)', textTransform: 'capitalize' }}>
+        {value || '—'}
+      </div>
+    </div>
+  )
+}
+
+// ── Génération étiquette ───────────────────────────────────────────────────
 function genererEtiquetteEntreprise(commande) {
   try {
-    console.log("Commande complète :", commande)
-  console.log("Prix livraison :", commande.prix_livraison)
     const dateActuelle = new Date()
     const prixLivraison = parseFloat(commande.prix_livraison) || 0
     const montantArticle = parseFloat(commande.montant_a_collecter) || 0
     const total = montantArticle + prixLivraison
-    
-    const html = `
-              <!DOCTYPE html>
-              <html>
-              <head>
-              <meta charset="UTF-8">
-              <title>Étiquette ${commande.reference}</title>
 
-              <style>
-                body {
-                  font-family: Arial, sans-serif;
-                  background: #fff;
-                }
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Étiquette ${commande.reference}</title>
+    <style>
+      body { font-family: Arial, sans-serif; background: #fff; }
+      .etiquette { width: 10cm; height: 15cm; border: 2px solid #000; padding: 10px; display: flex; flex-direction: column; justify-content: space-between; }
+      .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #000; padding-bottom: 5px; }
+      .logo { font-weight: bold; font-size: 12px; }
+      .type { font-size: 11px; font-weight: bold; color: ${commande.type_livraison === 'express' ? 'red' : 'black'}; }
+      .reference { text-align: center; font-size: 20px; font-weight: bold; border: 2px solid #000; padding: 6px; margin: 8px 0; }
+      .bloc { margin: 6px 0; }
+      .title { font-size: 10px; font-weight: bold; border-bottom: 1px solid #000; margin-bottom: 2px; }
+      .nom { font-size: 13px; font-weight: bold; }
+      .tel { font-size: 12px; }
+      .adresse { font-size: 11px; }
+      .zone { text-align: center; font-size: 14px; font-weight: bold; border: 2px dashed #000; padding: 4px; margin: 6px 0; }
+      .infos { display: flex; justify-content: space-between; font-size: 11px; }
+      .prix { border-top: 2px solid #000; margin-top: 6px; padding-top: 6px; font-size: 12px; }
+      .row { display: flex; justify-content: space-between; }
+      .total { margin-top: 4px; padding: 4px; background: black; color: white; font-weight: bold; }
+      .barcode { text-align: center; font-family: monospace; font-size: 16px; letter-spacing: 2px; border-top: 1px dashed #000; padding-top: 6px; }
+      .footer { font-size: 9px; text-align: center; color: #666; }
+    </style></head><body>
+    <div class="etiquette">
+      <div class="header"><div class="logo">🚚 DELIVERY</div><div class="type">${commande.type_livraison?.toUpperCase()}</div></div>
+      <div class="reference">${commande.reference}</div>
+      <div class="zone">${commande.dest_gouvernorat}</div>
+      <div class="bloc">
+        <div class="title">DESTINATAIRE</div>
+        <div class="nom">${commande.dest_nom} ${commande.dest_prenom}</div>
+        <div class="tel">${commande.dest_telephone}</div>
+        <div class="adresse">${commande.dest_adresse}</div>
+      </div>
+      <div class="infos"><div>Colis: <b>${commande.nombre_colis}</b></div><div>Poids: <b>${commande.poids_total} kg</b></div></div>
+      <div class="prix">
+        <div class="row"><span>Article</span><span>${montantArticle.toFixed(3)} TND</span></div>
+        <div class="row"><span>Livraison</span><span>${prixLivraison.toFixed(3)} TND</span></div>
+        <div class="total row"><span>TOTAL</span><span>${total.toFixed(3)} TND</span></div>
+      </div>
+      <div class="barcode">*${commande.reference}*</div>
+      <div class="footer">${dateActuelle.toLocaleDateString('fr-FR')}</div>
+    </div></body></html>`
 
-                .etiquette {
-                  width: 10cm;
-                  height: 15cm;
-                  border: 2px solid #000;
-                  padding: 10px;
-                  display: flex;
-                  flex-direction: column;
-                  justify-content: space-between;
-                }
-
-                /* HEADER */
-                .header {
-                  display: flex;
-                  justify-content: space-between;
-                  align-items: center;
-                  border-bottom: 2px solid #000;
-                  padding-bottom: 5px;
-                }
-
-                .logo {
-                  font-weight: bold;
-                  font-size: 12px;
-                }
-
-                .type {
-                  font-size: 11px;
-                  font-weight: bold;
-                  color: ${commande.type_livraison === 'express' ? 'red' : 'black'};
-                }
-
-                /* REFERENCE */
-                .reference {
-                  text-align: center;
-                  font-size: 20px;
-                  font-weight: bold;
-                  border: 2px solid #000;
-                  padding: 6px;
-                  margin: 8px 0;
-                }
-
-                /* DESTINATAIRE */
-                .bloc {
-                  margin: 6px 0;
-                }
-
-                .title {
-                  font-size: 10px;
-                  font-weight: bold;
-                  border-bottom: 1px solid #000;
-                  margin-bottom: 2px;
-                }
-
-                .nom {
-                  font-size: 13px;
-                  font-weight: bold;
-                }
-
-                .tel {
-                  font-size: 12px;
-                }
-
-                .adresse {
-                  font-size: 11px;
-                }
-
-                /* GOUVERNORAT */
-                .zone {
-                  text-align: center;
-                  font-size: 14px;
-                  font-weight: bold;
-                  border: 2px dashed #000;
-                  padding: 4px;
-                  margin: 6px 0;
-                }
-
-                /* INFOS COLIS */
-                .infos {
-                  display: flex;
-                  justify-content: space-between;
-                  font-size: 11px;
-                }
-
-                /* PRIX */
-                .prix {
-                  border-top: 2px solid #000;
-                  margin-top: 6px;
-                  padding-top: 6px;
-                  font-size: 12px;
-                }
-
-                .row {
-                  display: flex;
-                  justify-content: space-between;
-                }
-
-                .total {
-                  margin-top: 4px;
-                  padding: 4px;
-                  background: black;
-                  color: white;
-                  font-weight: bold;
-                }
-
-                /* BARCODE */
-                .barcode {
-                  text-align: center;
-                  font-family: monospace;
-                  font-size: 16px;
-                  letter-spacing: 2px;
-                  border-top: 1px dashed #000;
-                  padding-top: 6px;
-                }
-
-                /* FOOTER */
-                .footer {
-                  font-size: 9px;
-                  text-align: center;
-                  color: #666;
-                }
-
-              </style>
-              </head>
-
-              <body>
-
-              <div class="etiquette">
-
-                <!-- HEADER -->
-                <div class="header">
-                  <div class="logo">🚚 DELIVERY</div>
-                  <div class="type">${commande.type_livraison.toUpperCase()}</div>
-                </div>
-
-                <!-- REFERENCE -->
-                <div class="reference">${commande.reference}</div>
-
-                <!-- ZONE -->
-                <div class="zone">${commande.dest_gouvernorat}</div>
-
-                <!-- DESTINATAIRE -->
-                <div class="bloc">
-                  <div class="title">DESTINATAIRE</div>
-                  <div class="nom">${commande.dest_nom} ${commande.dest_prenom}</div>
-                  <div class="tel">${commande.dest_telephone}</div>
-                  <div class="adresse">${commande.dest_adresse}</div>
-                </div>
-
-                <!-- INFOS -->
-                <div class="infos">
-                  <div>Colis: <b>${commande.nombre_colis}</b></div>
-                  <div>Poids: <b>${commande.poids_total} kg</b></div>
-                </div>
-
-                <!-- PRIX -->
-                <div class="prix">
-                  <div class="row">
-                    <span>Article</span>
-                    <span>${montantArticle.toFixed(3)} TND</span>
-                  </div>
-                  <div class="row">
-                    <span>Livraison</span>
-                    <span>${prixLivraison.toFixed(3)} TND</span>
-                  </div>
-
-                  <div class="total row">
-                    <span>TOTAL</span>
-                    <span>${total.toFixed(3)} TND</span>
-                  </div>
-                </div>
-
-                <!-- BARCODE -->
-                <div class="barcode">*${commande.reference}*</div>
-
-                <!-- FOOTER -->
-                <div class="footer">
-                  ${dateActuelle.toLocaleDateString('fr-FR')}
-                </div>
-
-              </div>
-
-              </body>
-              </html>
-
-    `
-
-    // Ouvrir dans une nouvelle fenêtre et imprimer
     const win = window.open('', '_blank', 'width=800,height=600')
     win.document.write(html)
     win.document.close()
     win.focus()
-    
-    // Attendre que la page se charge puis lancer l'impression
-    setTimeout(() => {
-      win.print()
-    }, 250)
+    setTimeout(() => win.print(), 250)
   } catch (err) {
-    console.error('Erreur:', err)
-    alert("Erreur lors de la génération de l'étiquette d'expédition")
+    toast.error("Erreur lors de la génération de l'étiquette")
   }
 }
-// ── Page principale ─────────────────────────────────────────────────────────
+
+// ── StatutModal ───────────────────────────────────────────────────────────
+function StatutModal({ commande, onClose, onSuccess }) {
+  const [statut, setStatut] = useState('')
+  const [commentaire, setCommentaire] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const options = TRANSITIONS[commande.statut] || []
+
+  const submit = async () => {
+    if (!statut) return
+    setLoading(true)
+    try {
+      await entrepriseApi.changerStatut(commande.id, { statut, commentaire })
+      toast.success(`Statut mis à jour : ${STATUT_LABEL[statut]}`)
+      onSuccess()
+      onClose()
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Erreur lors du changement de statut')
+    } finally { setLoading(false) }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3>Changer le statut</h3>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: '10px 14px', marginBottom: 20, fontFamily: 'monospace', fontWeight: 700, color: 'var(--accent)' }}>
+          {commande.reference}
+        </div>
+        <div className="form-group">
+          <label className="form-label">Nouveau statut</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {options.map(opt => {
+              const sc = STATUT_COLORS[opt] || {}
+              return (
+                <label key={opt} style={{
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
+                  borderRadius: 10, border: `2px solid ${statut === opt ? sc.dot : 'var(--border)'}`,
+                  background: statut === opt ? `${sc.dot}10` : 'var(--bg3)',
+                  cursor: 'pointer', transition: 'all 0.15s',
+                }}>
+                  <input type="radio" name="statut" value={opt}
+                    checked={statut === opt} onChange={() => setStatut(opt)}
+                    style={{ accentColor: sc.dot }} />
+                  <div style={{ width: 10, height: 10, borderRadius: '50%', background: sc.dot, flexShrink: 0 }} />
+                  <span style={{ fontWeight: 600, fontSize: 14, color: statut === opt ? sc.color : 'var(--text)' }}>
+                    {STATUT_LABEL[opt]}
+                  </span>
+                </label>
+              )
+            })}
+          </div>
+        </div>
+        <div className="form-group" style={{ marginTop: 14 }}>
+          <label className="form-label">Commentaire (optionnel)</label>
+          <textarea className="form-textarea" rows={2} value={commentaire}
+            onChange={e => setCommentaire(e.target.value)}
+            placeholder="Note interne..." />
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="btn btn-secondary" onClick={onClose}>Annuler</button>
+          <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }}
+            onClick={submit} disabled={loading || !statut}>
+            {loading ? <span className="spinner" /> : 'Confirmer'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Page principale ────────────────────────────────────────────────────────
 export default function CommandesEntreprise() {
   const [commandes, setCommandes] = useState([])
   const [loading, setLoading] = useState(true)
@@ -432,9 +456,8 @@ export default function CommandesEntreprise() {
   const [selected, setSelected] = useState(null)
   const [retourTarget, setRetourTarget] = useState(null)
   const [detailCommande, setDetailCommande] = useState(null)
-
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(15)   // 15 lignes par page pour plus de visibilité
+  const [pageSize, setPageSize] = useState(15)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -445,12 +468,10 @@ export default function CommandesEntreprise() {
       const res = await entrepriseApi.commandes(params)
       setCommandes(res.data || [])
       setPage(1)
-    } catch (err) {
-      console.error(err)
+    } catch {
+      toast.error('Impossible de charger les commandes')
       setCommandes([])
-    } finally {
-      setLoading(false)
-    }
+    } finally { setLoading(false) }
   }, [filtreStatut, search])
 
   useEffect(() => { load() }, [load])
@@ -459,128 +480,171 @@ export default function CommandesEntreprise() {
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const paginated = commandes.slice((page - 1) * pageSize, page * pageSize)
 
-  const handlePageSizeChange = (newSize) => {
-    setPageSize(newSize)
-    setPage(1)
+  // Colonnes fixes, contenu tronqué — pas de scroll horizontal
+  const colWidths = {
+    ref:      '14%',
+    client:   '16%',
+    gouv:     '10%',
+    montant:  '10%',
+    colis:    '8%',
+    date:     '10%',
+    statut:   '14%',
+    actions:  '18%',
   }
 
   return (
     <div className="animate-fade-up">
-      <div style={{ marginBottom: 28 }}>
-        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 26, fontWeight: 700, color: 'var(--navy-900)' }}>
-          Commandes reçues
-        </h2>
-        <p style={{ color: 'var(--text-muted)', fontSize: 14, marginTop: 4 }}>
-          Toutes les commandes affectées à votre entreprise
-        </p>
-      </div>
-
-      {/* Filtres */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', flex: 1, minWidth: 280 }}>
-          <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-          <input
-            className="form-input"
-            style={{ paddingLeft: 36 }}
-            placeholder="Rechercher par référence, nom, téléphone..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+        <div>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 26, fontWeight: 700, color: 'var(--navy-900)' }}>
+            Commandes reçues
+          </h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: 14, marginTop: 4 }}>
+            {loading ? '…' : `${total} commande${total > 1 ? 's' : ''} affectées à votre entreprise`}
+          </p>
         </div>
-        <select className="form-select" style={{ width: 180 }} value={filtreStatut} onChange={e => setFiltreStatut(e.target.value)}>
-          <option value="">Tous les statuts</option>
-          {Object.entries(STATUT_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
+        <button className="btn btn-secondary btn-sm" onClick={load} disabled={loading}>
+          Actualiser
+        </button>
       </div>
 
-      {/* Tableau complet sans scroll horizontal */}
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        <div className="table-wrapper">
-          {loading ? (
-            <div className="empty-state"><p>Chargement...</p></div>
-          ) : commandes.length === 0 ? (
-            <div className="empty-state">
-              <Package />
-              <h3>Aucune commande</h3>
-              <p>Les commandes affectées à votre entreprise apparaîtront ici.</p>
-            </div>
-          ) : (
-            <table style={{ width: '100%', tableLayout: 'fixed' }}>   {/* tableLayout: 'fixed' pour forcer les largeurs */}
-              <thead>
-                <tr>
-                  <th style={{ width: '12%' }}>Référence</th>
-                  <th style={{ width: '10%' }}>Client</th>
-                  <th style={{ width: '15%' }}>Adresse</th>
-                  <th style={{ width: '14%' }}>Gouvernorat</th>
-                  <th style={{ width: '10%' }}>Montant</th>
-                  <th style={{ width: '10%' }}>Date</th>
-                  <th style={{ width: '15%' }}>Statut</th>
-                  <th style={{ width: '30%' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {paginated.map(c => (
-                  <tr 
-                    key={c.id} 
-                    onClick={() => setDetailCommande(c)}
-                    style={{ cursor: 'pointer' }}
-                    className="hover-row"
-                  >
-                    <td>
-                      <span style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--accent)', fontWeight: 600, background: 'rgba(30,77,123,0.07)', padding: '3px 8px', borderRadius: 5 }}>
-                        {c.reference}
-                      </span>
-                    </td>
-                    <td style={{ fontWeight: 500 }}>{c.dest_nom} {c.dest_prenom}</td>
-                    <td style={{ color: 'var(--text-muted)', fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {c.dest_adresse}
-                    </td>
-                    <td style={{ color: 'var(--text-muted)' }}>{c.dest_gouvernorat}</td>
-                    <td style={{ fontWeight: 600 }}>{c.montant_a_collecter} TND</td>
-                    <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{new Date(c.created_at).toLocaleDateString('fr-FR')}</td>
-                    <td>
-                      <span className={`badge ${STATUT_BADGE[c.statut] || 'badge-warning'}`}>
-                        {STATUT_LABEL[c.statut] || c.statut}
-                      </span>
-                    </td>
-                    <td style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
-                      {TRANSITIONS[c.statut]?.length > 0 && (
-                        <button className="btn btn-ghost btn-sm" onClick={() => setSelected(c)}>Statut</button>
-                      )}
-
-                      {['prise_charge', 'en_transit'].includes(c.statut) && (
-                        <button 
-                          className="btn btn-ghost btn-sm" 
-                          style={{ color: '#ef4444' }} 
-                          onClick={() => setRetourTarget(c)}
-                        >
-                          Retour
-                        </button>
-                      )}
-
-                      <button 
-                        className="btn btn-ghost btn-sm" 
-                        style={{ color: '#d97706' }} 
-                        onClick={(e) => { e.stopPropagation(); genererEtiquetteEntreprise(c); }}
-                      >
-                        Étiquette
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      {/* Filtres — pill buttons + search */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ position: 'relative', flex: 1, minWidth: 260 }}>
+          <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+          <input className="form-input" style={{ paddingLeft: 36, height: 40 }}
+            placeholder="Référence, nom, téléphone..." value={search}
+            onChange={e => setSearch(e.target.value)} />
+          {search && (
+            <button onClick={() => setSearch('')} style={{
+              position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+              background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)',
+            }}><X size={14} /></button>
           )}
         </div>
 
+        {/* Filtre statut en pills */}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {[{ value: '', label: 'Tous' }, ...Object.entries(STATUT_LABEL).map(([k, v]) => ({ value: k, label: v }))].map(({ value, label }) => (
+            <button key={value}
+              onClick={() => { setFiltreStatut(value); setPage(1) }}
+              style={{
+                padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+                border: filtreStatut === value ? 'none' : '1px solid var(--border)',
+                background: filtreStatut === value ? 'var(--navy-800)' : 'transparent',
+                color: filtreStatut === value ? '#fff' : 'var(--text-muted)',
+                cursor: 'pointer', transition: 'all 0.15s', whiteSpace: 'nowrap',
+              }}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Tableau — largeurs fixes, pas de scroll horizontal */}
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        {loading ? (
+          <div className="empty-state"><p>Chargement...</p></div>
+        ) : commandes.length === 0 ? (
+          <div className="empty-state">
+            <Package />
+            <h3>Aucune commande</h3>
+            <p>Les commandes affectées apparaîtront ici.</p>
+          </div>
+        ) : (
+          <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={{ width: colWidths.ref }}>Référence</th>
+                <th style={{ width: colWidths.client }}>Client</th>
+                <th style={{ width: colWidths.gouv }}>Zone</th>
+                <th style={{ width: colWidths.montant, textAlign: 'right' }}>Montant</th>
+                <th style={{ width: colWidths.colis, textAlign: 'center' }}>Colis</th>
+                <th style={{ width: colWidths.date }}>Date</th>
+                <th style={{ width: colWidths.statut }}>Statut</th>
+                <th style={{ width: colWidths.actions }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginated.map(c => {
+                const sc = STATUT_COLORS[c.statut] || {}
+                return (
+                  <tr key={c.id} onClick={() => setDetailCommande(c)}
+                    style={{ cursor: 'pointer' }}>
+                    <td>
+                      <span style={{
+                        fontFamily: 'monospace', fontSize: 12, color: 'var(--accent)',
+                        fontWeight: 700, background: 'rgba(30,77,123,0.07)',
+                        padding: '3px 8px', borderRadius: 5,
+                        display: 'inline-block', maxWidth: '100%',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      }}>
+                        {c.reference}
+                      </span>
+                    </td>
+                    <td style={{ fontWeight: 500 }}>
+                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>
+                        {c.dest_nom} {c.dest_prenom}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {c.dest_telephone}
+                      </div>
+                    </td>
+                    <td style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {c.dest_gouvernorat}
+                    </td>
+                    <td style={{ fontWeight: 700, textAlign: 'right', fontSize: 13 }}>
+                      {parseFloat(c.montant_a_collecter).toFixed(0)} TND
+                    </td>
+                    <td style={{ textAlign: 'center', fontSize: 13 }}>
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        width: 24, height: 24, borderRadius: '50%',
+                        background: 'var(--bg3)', fontSize: 12, fontWeight: 700, color: 'var(--accent)',
+                      }}>{c.nombre_colis}</span>
+                    </td>
+                    <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                      {new Date(c.created_at).toLocaleDateString('fr-FR')}
+                    </td>
+                    <td>
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 5,
+                        padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600,
+                        background: sc.bg, color: sc.color,
+                      }}>
+                        <div style={{ width: 6, height: 6, borderRadius: '50%', background: sc.dot, flexShrink: 0 }} />
+                        {STATUT_LABEL[c.statut] || c.statut}
+                      </span>
+                    </td>
+                    <td onClick={e => e.stopPropagation()}>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {TRANSITIONS[c.statut]?.length > 0 && (
+                          <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '4px 10px' }}
+                            onClick={() => setSelected(c)}>
+                            Statut
+                          </button>
+                        )}
+                      
+                        <button className="btn btn-ghost btn-sm"
+                          style={{ fontSize: 11, padding: '4px 10px', color: '#d97706' }}
+                          onClick={() => genererEtiquetteEntreprise(c)}>
+                          Étiq.
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+
         {!loading && commandes.length > 0 && (
           <Pagination
-            page={page}
-            totalPages={totalPages}
-            total={total}
-            pageSize={pageSize}
-            onPageChange={setPage}
-            onPageSizeChange={handlePageSizeChange}
+            page={page} totalPages={totalPages} total={total}
+            pageSize={pageSize} onPageChange={setPage}
+            onPageSizeChange={s => { setPageSize(s); setPage(1) }}
           />
         )}
       </div>
