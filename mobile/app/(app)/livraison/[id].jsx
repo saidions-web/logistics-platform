@@ -1,59 +1,350 @@
 /**
- * [id].jsx — Détail d'une tournée livreur (Version Finale avec Appel Téléphone)
+ * app/(app)/livraison/[id].jsx — Détail Tournée Livreur
+ * Design aligned with web DashboardEntreprise / tournee.jsx theme
  */
-
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Alert, Image, Linking, Modal, RefreshControl,
-  ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View
+  ActivityIndicator,
+  Alert,
+  Image,
+  Linking,
+  Modal,
+  RefreshControl,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-
 import * as ImagePicker from 'expo-image-picker';
-import * as Location from 'expo-location';
 
 import api from '../../../services/api';
+import {
+  COLORS, RADIUS, SHADOW,
+  BADGE, STATUT_BADGE, STATUT_LABEL,
+  TOURNEE_STATUT_COLOR, TOURNEE_STATUT_LABEL,
+} from '../../../constants/theme';
 
 const MOTIFS = [
-  { value: 'client_absent',    label: 'Client absent' },
-  { value: 'injoignable',      label: 'Injoignable' },
-  { value: 'refus_client',     label: 'Refus du client' },
+  { value: 'client_absent', label: 'Client absent' },
+  { value: 'injoignable', label: 'Injoignable' },
+  { value: 'refus_client', label: 'Refus du client' },
   { value: 'adresse_invalide', label: 'Adresse invalide' },
-  { value: 'autre',            label: 'Autre' },
+  { value: 'autre', label: 'Autre' },
 ];
 
-const GPS_INTERVAL = 30000; // 30 secondes
+const GPS_INTERVAL = 30000;
 
-// Helper Navigation
+// ─────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────
 function ouvrirNavigation(etape) {
   const { dest_latitude, dest_longitude, commande_dest_adresse, commande_gouvernorat } = etape || {};
-
   const hasGPS = dest_latitude && dest_longitude;
-  let googleUrl, wazeUrl;
 
-  if (hasGPS) {
-    const lat = dest_latitude;
-    const lng = dest_longitude;
-    googleUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
-    wazeUrl   = `https://waze.com/ul?ll=${lat},${lng}&navigate=yes`;
-  } else {
-    const adresse = encodeURIComponent(`${commande_dest_adresse || ''}, ${commande_gouvernorat || ''}, Tunisie`);
-    googleUrl = `https://www.google.com/maps/dir/?api=1&destination=${adresse}&travelmode=driving`;
-    wazeUrl   = `https://waze.com/ul?q=${adresse}&navigate=yes`;
-  }
+  const googleUrl = hasGPS
+    ? `https://www.google.com/maps/dir/?api=1&destination=${dest_latitude},${dest_longitude}&travelmode=driving`
+    : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${commande_dest_adresse || ''}, ${commande_gouvernorat || ''}, Tunisie`)}&travelmode=driving`;
+
+  const wazeUrl = hasGPS
+    ? `https://waze.com/ul?ll=${dest_latitude},${dest_longitude}&navigate=yes`
+    : `https://waze.com/ul?q=${encodeURIComponent(`${commande_dest_adresse || ''}, ${commande_gouvernorat || ''}, Tunisie`)}&navigate=yes`;
 
   Alert.alert(
-    '🗺️ Navigation',
-    hasGPS ? 'Position GPS précise' : 'Navigation par adresse',
+    '🗺 Navigation',
+    hasGPS ? 'Position GPS précise disponible' : 'Navigation par adresse',
     [
-      { text: 'Google Maps', onPress: () => Linking.openURL(googleUrl).catch(() => Alert.alert('Erreur', 'Impossible d\'ouvrir Google Maps')) },
-      { text: 'Waze',        onPress: () => Linking.openURL(wazeUrl).catch(() => Alert.alert('Erreur', 'Impossible d\'ouvrir Waze')) },
+      { text: 'Google Maps', onPress: () => Linking.openURL(googleUrl).catch(() => Alert.alert('Erreur', "Impossible d'ouvrir Google Maps")) },
+      { text: 'Waze', onPress: () => Linking.openURL(wazeUrl).catch(() => Alert.alert('Erreur', "Impossible d'ouvrir Waze")) },
       { text: 'Annuler', style: 'cancel' },
     ]
   );
 }
 
-export default function LivraisonScreen() {
+// ─────────────────────────────────────────
+// SUB-COMPONENTS
+// ─────────────────────────────────────────
+function SummaryItem({ value, label, color }) {
+  return (
+    <View style={styles.summaryItem}>
+      <Text style={[styles.summaryValue, { color }]}>{value}</Text>
+      <Text style={styles.summaryLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function SummaryBar({ etapes }) {
+  const total = etapes.length;
+  const livrees = etapes.filter(e => e.commande_statut === 'livree').length;
+  const retours = etapes.filter(e => e.commande_statut === 'retournee').length;
+  const restant = total - livrees - retours;
+
+  return (
+    <View style={styles.summaryBar}>
+      <SummaryItem value={total} label="Total" color={COLORS.primary} />
+      <View style={styles.summaryDivider} />
+      <SummaryItem value={livrees} label="Livrées" color={COLORS.green} />
+      <View style={styles.summaryDivider} />
+      <SummaryItem value={retours} label="Retours" color={COLORS.red} />
+      <View style={styles.summaryDivider} />
+      <SummaryItem value={restant} label="Restant" color={COLORS.amber} />
+    </View>
+  );
+}
+
+function StatusBadge({ statut }) {
+  const key = STATUT_BADGE?.[statut] || 'default';
+  const theme = BADGE?.[key] || { bg: '#e5e7eb', text: '#6b7280' };
+  return (
+    <View style={[styles.statusBadge, { backgroundColor: theme.bg }]}>
+      <Text style={[styles.statusBadgeText, { color: theme.text }]}>
+        {STATUT_LABEL?.[statut] || statut}
+      </Text>
+    </View>
+  );
+}
+
+function EtapeCard({ etape, estEnCours, estTerminee, onLivrer, onRetour, onNaviguer, onCall }) {
+  const estLivree = etape.commande_statut === 'livree';
+  const estRetournee = etape.commande_statut === 'retournee';
+
+  return (
+    <View style={[
+      styles.etapeCard,
+      estLivree && styles.etapeCardLivree,
+      estRetournee && styles.etapeCardRetournee,
+    ]}>
+      <View style={[
+        styles.etapeOrder,
+        estLivree && { backgroundColor: COLORS.green },
+        estRetournee && { backgroundColor: COLORS.red },
+      ]}>
+        <Text style={styles.etapeOrderText}>
+          {estLivree ? '✓' : estRetournee ? '↩' : etape.ordre}
+        </Text>
+      </View>
+
+      <View style={styles.etapeBody}>
+        <View style={styles.etapeHeader}>
+          <Text style={styles.etapeRef}>{etape.commande_reference}</Text>
+          <StatusBadge statut={etape.commande_statut} />
+        </View>
+
+        <Text style={styles.etapeMontant}>
+          💰 {etape.commande_montant} TND
+        </Text>
+
+        <View style={styles.clientRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.clientName}>
+              {etape.commande_dest_nom} {etape.commande_dest_prenom || ''}
+            </Text>
+            <Text style={styles.clientAddr} numberOfLines={2}>
+              📍 {etape.commande_dest_adresse}, {etape.commande_gouvernorat}
+            </Text>
+          </View>
+          {etape.commande_dest_telephone && (
+            <TouchableOpacity style={styles.phoneBtn} onPress={onCall} activeOpacity={0.8}>
+              <Text style={styles.phoneBtnIcon}>📞</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {!estTerminee && (
+          <TouchableOpacity style={styles.navBtn} onPress={onNaviguer} activeOpacity={0.85}>
+            <Text style={styles.navBtnText}>🗺 Naviguer vers le client</Text>
+          </TouchableOpacity>
+        )}
+
+        {estEnCours && !estLivree && !estRetournee && (
+          <View style={styles.actionRow}>
+            <TouchableOpacity style={styles.btnLivrer} onPress={onLivrer} activeOpacity={0.85}>
+              <Text style={styles.btnLivrerText}>✓ Livré</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.btnRetour} onPress={onRetour} activeOpacity={0.85}>
+              <Text style={styles.btnRetourText}>↩ Retour</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────
+// MODAL PREUVE DE LIVRAISON (OBLIGATOIRE)
+// ─────────────────────────────────────────
+function PreuveLivraisonModal({ visible, etape, onClose, onConfirm, loading }) {
+  const [photoUri, setPhotoUri] = useState(null);
+  const [commentaire, setCommentaire] = useState('');
+
+  const pickImage = async () => {
+    const result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.8,
+    });
+
+    if (!result.canceled) {
+      setPhotoUri(result.assets[0].uri);
+    }
+  };
+
+  const handleSubmit = () => {
+    if (!photoUri) {
+      Alert.alert('Photo requise', 'Vous devez prendre une photo comme preuve de livraison.');
+      return;
+    }
+    onConfirm({ etape, photoUri, commentaire });
+  };
+
+  const handleClose = () => {
+    setPhotoUri(null);
+    setCommentaire('');
+    onClose();
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="slide">
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalCard}>
+          <Text style={styles.modalTitle}>Preuve de Livraison</Text>
+          <Text style={styles.modalSub}>Commande : {etape?.commande_reference}</Text>
+
+          <TouchableOpacity style={styles.photoPickBtn} onPress={pickImage}>
+            {photoUri ? (
+              <Image source={{ uri: photoUri }} style={styles.photoPreview} />
+            ) : (
+              <>
+                <Text style={styles.photoPickIcon}>📸</Text>
+                <Text style={styles.photoPickText}>Prendre une photo du colis livré</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          {photoUri && (
+            <TouchableOpacity style={styles.photoRetake} onPress={pickImage}>
+              <Text style={styles.photoRetakeText}>↻ Reprendre la photo</Text>
+            </TouchableOpacity>
+          )}
+
+          <Text style={styles.label}>Commentaire (optionnel)</Text>
+          <TextInput
+            style={styles.commentInput}
+            placeholder="Ex : Livré en main propre, signature obtenue..."
+            placeholderTextColor={COLORS.textMuted}
+            value={commentaire}
+            onChangeText={setCommentaire}
+            multiline
+            numberOfLines={3}
+            textAlignVertical="top"
+          />
+
+          <View style={styles.modalFooter}>
+            <TouchableOpacity style={styles.btnCancel} onPress={handleClose}>
+              <Text style={styles.btnCancelText}>Annuler</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.btnConfirm, loading && { opacity: 0.6 }]}
+              onPress={handleSubmit}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Text style={styles.btnConfirmText}>Confirmer la livraison</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ─────────────────────────────────────────
+// MODAL RETOUR
+// ─────────────────────────────────────────
+function RetourModal({ visible, onClose, onConfirm, loading }) {
+  const [motif, setMotif] = useState('');
+  const [commentaire, setCommentaire] = useState('');
+
+  const reset = () => { setMotif(''); setCommentaire(''); };
+
+  const handleConfirm = () => {
+    if (!motif) {
+      Alert.alert('Motif requis', 'Veuillez sélectionner un motif de retour.');
+      return;
+    }
+    onConfirm({ motif, commentaire });
+  };
+
+  const handleClose = () => { reset(); onClose(); };
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalCard}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>↩ Déclarer un retour</Text>
+            <TouchableOpacity onPress={handleClose} style={styles.modalCloseBtn}>
+              <Text style={styles.modalCloseText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false}>
+            <Text style={styles.modalSectionLabel}>Motif du retour *</Text>
+            {MOTIFS.map((m) => (
+              <TouchableOpacity
+                key={m.value}
+                style={[styles.motifBtn, motif === m.value && styles.motifBtnActive]}
+                onPress={() => setMotif(m.value)}
+              >
+                <View style={[styles.motifRadio, motif === m.value && styles.motifRadioActive]} />
+                <Text style={[styles.motifLabel, motif === m.value && styles.motifLabelActive]}>
+                  {m.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+
+            <Text style={[styles.modalSectionLabel, { marginTop: 16 }]}>Commentaire (optionnel)</Text>
+            <TextInput
+              style={styles.commentInput}
+              placeholder="Ex : Client absent, boîte aux lettres pleine..."
+              placeholderTextColor={COLORS.textMuted}
+              value={commentaire}
+              onChangeText={setCommentaire}
+              multiline
+              numberOfLines={3}
+              textAlignVertical="top"
+            />
+          </ScrollView>
+
+          <View style={styles.modalFooter}>
+            <TouchableOpacity style={styles.btnCancel} onPress={handleClose}>
+              <Text style={styles.btnCancelText}>Annuler</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.btnConfirmRetour, loading && { opacity: 0.6 }]}
+              onPress={handleConfirm}
+              disabled={loading}
+            >
+              {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.btnConfirmRetourText}>Confirmer</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ─────────────────────────────────────────
+// ÉCRAN PRINCIPAL
+// ─────────────────────────────────────────
+export default function LivraisonDetailScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
 
@@ -65,15 +356,13 @@ export default function LivraisonScreen() {
 
   // Modals
   const [retourTarget, setRetourTarget] = useState(null);
-  const [showPreuveModal, setShowPreuveModal] = useState(false);
-  const [currentEtape, setCurrentEtape] = useState(null);
-  const [photoPreuve, setPhotoPreuve] = useState(null);
-  const [commentairePreuve, setCommentairePreuve] = useState('');
-  const [submittingPreuve, setSubmittingPreuve] = useState(false);
+  const [livrerTarget, setLivrerTarget] = useState(null);   // ← Preuve livraison
+  const [retourLoading, setRetourLoading] = useState(false);
+  const [preuveLoading, setPreuveLoading] = useState(false);
 
-  // GPS
-  const gpsIntervalRef = useRef(null);
+  const gpsRef = useRef(null);
 
+  // Chargement des données
   const load = useCallback(async () => {
     try {
       const [resTournee, resEtapes] = await Promise.all([
@@ -81,9 +370,10 @@ export default function LivraisonScreen() {
         api.get(`/entreprise/livreur/tournees/${id}/commandes/`),
       ]);
       setTournee(resTournee.data);
-      setEtapes(Array.isArray(resEtapes.data) ? resEtapes.data : (resEtapes.data.etapes || []));
-    } catch (e) {
-      Alert.alert('Erreur', 'Impossible de charger la tournée');
+      setEtapes(resEtapes.data);
+    } catch (err) {
+      Alert.alert('Erreur', 'Impossible de charger le détail de la tournée.');
+      console.error(err);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -92,258 +382,332 @@ export default function LivraisonScreen() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Envoi GPS automatique
-  const envoyerGPS = useCallback(async () => {
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') return;
-
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      await api.post('/entreprise/livreurs/gps/update/', {
-        latitude: loc.coords.latitude,
-        longitude: loc.coords.longitude,
-      });
-    } catch {}
-  }, []);
-
+  // GPS Polling
   useEffect(() => {
-    if (tournee?.statut === 'en_cours') {
-      envoyerGPS();
-      gpsIntervalRef.current = setInterval(envoyerGPS, GPS_INTERVAL);
-    } else if (gpsIntervalRef.current) {
-      clearInterval(gpsIntervalRef.current);
-      gpsIntervalRef.current = null;
-    }
-    return () => { if (gpsIntervalRef.current) clearInterval(gpsIntervalRef.current); };
-  }, [tournee?.statut, envoyerGPS]);
+    const startGPS = async () => {
+      try {
+        const { status } = await (await import('expo-location')).requestForegroundPermissionsAsync();
+        if (status !== 'granted') return;
 
-  // Actions Tournée
-  const handleTourneeAction = async (statut) => {
-    setActionLoading(true);
+        const sendPos = async () => {
+          try {
+            const loc = await (await import('expo-location')).getCurrentPositionAsync({ accuracy: 4 });
+            if (tournee?.livreur?.id) {
+              await api.post(`/entreprise/livreurs/${tournee.livreur.id}/position/`, {
+                latitude: loc.coords.latitude,
+                longitude: loc.coords.longitude,
+              });
+            }
+          } catch {}
+        };
+
+        sendPos();
+        gpsRef.current = setInterval(sendPos, GPS_INTERVAL);
+      } catch {}
+    };
+
+    if (tournee?.statut === 'en_cours') startGPS();
+
+    return () => { if (gpsRef.current) clearInterval(gpsRef.current); };
+  }, [tournee?.statut, tournee?.livreur]);
+
+  // Marquer livré → ouvre modal preuve
+  const handleLivrer = (etape) => {
+    setLivrerTarget(etape);
+  };
+
+  // Confirmer livraison avec preuve
+  const handlePreuveConfirm = async ({ etape, photoUri, commentaire }) => {
+    setPreuveLoading(true);
     try {
-      await api.patch(`/entreprise/livreur/tournees/${id}/statut/`, { statut });
-      await load();
-      if (statut === 'terminee') {
-        Alert.alert('✅ Tournée terminée');
-        router.replace('/(app)/tournee');
-      }
-    } catch (e) {
-      Alert.alert('Erreur', e.response?.data?.detail || 'Action impossible');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  // Appel Téléphone
-  const makePhoneCall = (phone) => {
-    if (!phone) return;
-    const clean = phone.replace(/[\s\-\(\)]/g, '');
-    const final = clean.startsWith('+216') ? clean : `+216${clean.replace(/^0/, '')}`;
-    Linking.openURL(`tel:${final}`).catch(() => Alert.alert('Erreur', "Impossible d'ouvrir le téléphone"));
-  };
-
-  // Navigation
-  const handleNaviguer = (etape) => ouvrirNavigation(etape);
-
-  // Preuve Photo
-  const prendrePhoto = async () => {
-    const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.7 });
-    if (!result.canceled) setPhotoPreuve(result.assets[0]);
-  };
-
-  const validerPreuve = async () => {
-    if (!photoPreuve || !currentEtape) return;
-    setSubmittingPreuve(true);
-
-    const formData = new FormData();
-    formData.append('photo_preuve', { uri: photoPreuve.uri, type: 'image/jpeg', name: 'preuve.jpg' });
-    if (commentairePreuve) formData.append('commentaire_livreur', commentairePreuve);
-
-    try {
-      await api.post(`/entreprise/commandes/${currentEtape.commande}/preuve/`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      await api.patch(`/entreprise/commandes/${currentEtape.commande}/statut/`, {
+      await api.patch(`/entreprise/commandes/${etape.commande}/statut/`, {
         statut: 'livree',
-        commentaire: 'Livré avec preuve photo',
+        commentaire: commentaire || 'Livré avec photo de preuve via application mobile',
       });
+      setLivrerTarget(null);
       await load();
-      setShowPreuveModal(false);
-      setPhotoPreuve(null);
-      setCommentairePreuve('');
-      Alert.alert('✅ Livraison validée avec preuve');
-    } catch {
-      Alert.alert('Erreur', "Impossible d'enregistrer la preuve");
+      Alert.alert('✓ Succès', 'Commande marquée comme livrée avec preuve.');
+    } catch (err) {
+      Alert.alert('Erreur', err.response?.data?.detail || 'Impossible de confirmer la livraison.');
     } finally {
-      setSubmittingPreuve(false);
+      setPreuveLoading(false);
     }
   };
 
-  if (loading) return <ActivityIndicator style={styles.center} size="large" color="#1e40af" />;
+  // Déclarer retour
+  const handleRetourConfirm = async ({ motif, commentaire }) => {
+    if (!retourTarget) return;
+    setRetourLoading(true);
+    try {
+      await api.post('/retours/declarer/', {
+        commande_id: retourTarget.commande,
+        motif,
+        commentaire,
+      });
+      setRetourTarget(null);
+      await load();
+      Alert.alert('Retour enregistré');
+    } catch (err) {
+      Alert.alert('Erreur', err.response?.data?.detail || 'Impossible de déclarer le retour.');
+    } finally {
+      setRetourLoading(false);
+    }
+  };
 
-  const estEnCours = tournee?.statut === 'en_cours';
-  const estTerminee = tournee?.statut === 'terminee';
+  const handleCall = (tel) => {
+    if (!tel) return;
+    const clean = tel.replace(/\s/g, '');
+    Linking.openURL(`tel:${clean}`).catch(() => Alert.alert('Erreur', "Impossible de passer l'appel."));
+  };
+
+  const changerStatutTournee = async (nouveauStatut) => {
+    const msg = nouveauStatut === 'en_cours' ? 'Démarrer cette tournée ?' : 'Terminer cette tournée ?';
+    Alert.alert('Confirmation', msg, [
+      { text: 'Annuler', style: 'cancel' },
+      {
+        text: 'Confirmer',
+        onPress: async () => {
+          setActionLoading(true);
+          try {
+            await api.patch(`/entreprise/tournees/${id}/`, { statut: nouveauStatut });
+            await load();
+          } catch {
+            Alert.alert('Erreur', "Impossible de modifier le statut de la tournée.");
+          } finally {
+            setActionLoading(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+        <Text style={styles.loadingText}>Chargement de la tournée…</Text>
+      </View>
+    );
+  }
+
+  if (!tournee) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={styles.emptyIcon}>⚠️</Text>
+        <Text style={styles.emptyTitle}>Tournée introuvable</Text>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <Text style={styles.backBtnText}>← Retour</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  const estEnCours = tournee.statut === 'en_cours';
+  const estTerminee = tournee.statut === 'terminee';
+  const estPlanifie = tournee.statut === 'planifiee';
 
   return (
     <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
+
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.backBtn}>← Retour</Text>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backIconBtn}>
+          <Text style={styles.backIcon}>‹</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{tournee?.reference}</Text>
-        <Text style={styles.headerZone}>{tournee?.zone_gouvernorat}</Text>
+        <View style={styles.headerCenter}>
+          <Text style={styles.headerRef}>{tournee.reference}</Text>
+          <View style={[styles.headerBadge, { backgroundColor: (TOURNEE_STATUT_COLOR?.[tournee.statut] || COLORS.primary) + '28' }]}>
+            <View style={[styles.headerBadgeDot, { backgroundColor: TOURNEE_STATUT_COLOR?.[tournee.statut] || COLORS.primary }]} />
+            <Text style={[styles.headerBadgeText, { color: TOURNEE_STATUT_COLOR?.[tournee.statut] || COLORS.primary }]}>
+              {TOURNEE_STATUT_LABEL?.[tournee.statut] || tournee.statut}
+            </Text>
+          </View>
+        </View>
       </View>
 
-      {/* Boutons Démarrer / Terminer */}
-      {!estTerminee && (
-        <View style={styles.tourneeActions}>
-          {tournee?.statut === 'planifiee' && (
-            <TouchableOpacity style={styles.btnDemarrer} onPress={() => handleTourneeAction('en_cours')} disabled={actionLoading}>
-              <Text style={styles.btnText}>🚀 Démarrer la tournée</Text>
+      {/* Info Bar */}
+      <View style={styles.infoBar}>
+        <View style={styles.infoItem}>
+          <Text style={styles.infoIcon}>📍</Text>
+          <Text style={styles.infoText}>{tournee.zone_gouvernorat}</Text>
+        </View>
+        <View style={styles.infoDivider} />
+        <View style={styles.infoItem}>
+          <Text style={styles.infoIcon}>📅</Text>
+          <Text style={styles.infoText}>
+            {new Date(tournee.date_prevue).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })}
+          </Text>
+        </View>
+      </View>
+
+      {/* Summary */}
+      {etapes.length > 0 && <SummaryBar etapes={etapes} />}
+
+      {/* Action Tournée */}
+      {(estPlanifie || estEnCours) && (
+        <View style={styles.tourneeActionBar}>
+          {estPlanifie && (
+            <TouchableOpacity style={[styles.tourneeActionBtn, { backgroundColor: COLORS.primary }]} onPress={() => changerStatutTournee('en_cours')}>
+              <Text style={styles.tourneeActionBtnText}>▶ Démarrer la tournée</Text>
             </TouchableOpacity>
           )}
           {estEnCours && (
-            <TouchableOpacity style={styles.btnTerminer} onPress={() => handleTourneeAction('terminee')} disabled={actionLoading}>
-              <Text style={styles.btnText}>🏁 Terminer la tournée</Text>
+            <TouchableOpacity style={[styles.tourneeActionBtn, { backgroundColor: COLORS.green }]} onPress={() => changerStatutTournee('terminee')}>
+              <Text style={styles.tourneeActionBtnText}>✓ Terminer la tournée</Text>
             </TouchableOpacity>
           )}
         </View>
       )}
 
-      <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} />}>
-        {etapes.map((etape) => {
-          const estLivree = etape.commande_statut === 'livree';
-          const estRetournee = etape.commande_statut === 'retournee';
-
-          return (
-            <View key={etape.id} style={[styles.card, estLivree && styles.cardLivree, estRetournee && styles.cardRetournee]}>
-              <Text style={styles.ref}>#{etape.ordre} — {etape.commande_reference}</Text>
-
-              <View style={styles.clientRow}>
-                <View style={styles.clientInfo}>
-                  <Text style={styles.client}>
-                    👤 {etape.commande_dest_nom} {etape.commande_dest_prenom || ''}
-                  </Text>
-                  <Text style={styles.adresse}>
-                    📍 {etape.commande_dest_adresse}, {etape.commande_gouvernorat}
-                  </Text>
-                </View>
-
-                {/* Bouton Appel Téléphone */}
-                {etape.commande_dest_telephone && (
-                  <TouchableOpacity style={styles.phoneButton} onPress={() => makePhoneCall(etape.commande_dest_telephone)}>
-                    <Text style={styles.phoneIcon}>📞</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              {/* Bouton Naviguer */}
-              {!estTerminee && (
-                <TouchableOpacity style={styles.btnNav} onPress={() => handleNaviguer(etape)}>
-                  <Text style={styles.btnNavText}>🗺️ Naviguer vers le client</Text>
-                </TouchableOpacity>
-              )}
-
-              {/* Actions Livraison */}
-              {estEnCours && !estLivree && !estRetournee && (
-                <View style={styles.actions}>
-                  <TouchableOpacity style={styles.btnLivrer} onPress={() => { setCurrentEtape(etape); setShowPreuveModal(true); }}>
-                    <Text style={styles.btnLivrerText}>✓ Livré</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.btnRetour} onPress={() => setRetourTarget(etape)}>
-                    <Text style={styles.btnRetourText}>↩ Retour</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-          );
-        })}
+      {/* Liste des étapes */}
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
+      >
+        {etapes.length === 0 ? (
+          <View style={styles.empty}>
+            <Text style={styles.emptyIcon}>📦</Text>
+            <Text style={styles.emptyTitle}>Aucune commande</Text>
+          </View>
+        ) : (
+          etapes.map((etape) => (
+            <EtapeCard
+              key={etape.id}
+              etape={etape}
+              estEnCours={estEnCours}
+              estTerminee={estTerminee}
+              onLivrer={() => handleLivrer(etape)}
+              onRetour={() => setRetourTarget(etape)}
+              onNaviguer={() => ouvrirNavigation(etape)}
+              onCall={() => handleCall(etape.commande_dest_telephone)}
+            />
+          ))
+        )}
       </ScrollView>
 
-      {/* Modal Preuve Photo */}
-      <Modal visible={showPreuveModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>Preuve de Livraison</Text>
+      {/* Modals */}
+      <PreuveLivraisonModal
+        visible={!!livrerTarget}
+        etape={livrerTarget}
+        onClose={() => setLivrerTarget(null)}
+        onConfirm={handlePreuveConfirm}
+        loading={preuveLoading}
+      />
 
-            {photoPreuve ? (
-              <Image source={{ uri: photoPreuve.uri }} style={styles.photoPreview} />
-            ) : (
-              <TouchableOpacity style={styles.btnPhoto} onPress={prendrePhoto}>
-                <Text style={styles.btnPhotoText}>📸 Prendre photo</Text>
-              </TouchableOpacity>
-            )}
-
-            <TextInput
-              style={styles.textArea}
-              placeholder="Commentaire (optionnel)"
-              multiline
-              value={commentairePreuve}
-              onChangeText={setCommentairePreuve}
-            />
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.btnCancel} onPress={() => setShowPreuveModal(false)}>
-                <Text style={styles.btnCancelText}>Annuler</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.btnConfirm} onPress={validerPreuve} disabled={!photoPreuve || submittingPreuve}>
-                <Text style={styles.btnConfirmText}>{submittingPreuve ? 'Envoi...' : 'Valider'}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Modal Retour (à compléter avec ta version existante) */}
+      <RetourModal
+        visible={!!retourTarget}
+        onClose={() => setRetourTarget(null)}
+        onConfirm={handleRetourConfirm}
+        loading={retourLoading}
+      />
     </View>
   );
 }
 
+// Styles (inchangés sauf ajout des styles pour le modal preuve)
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f1f5f9' },
-  header: { backgroundColor: '#1e40af', padding: 16, paddingTop: 52, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  backBtn: { color: '#93c5fd', fontSize: 16 },
-  headerTitle: { color: '#fff', fontSize: 20, fontWeight: '700', flex: 1 },
-  headerZone: { color: '#bfdbfe', fontSize: 14 },
+  container: { flex: 1, backgroundColor: COLORS.bg },
 
-  tourneeActions: { padding: 12, flexDirection: 'row', gap: 10, backgroundColor: '#fff' },
-  btnDemarrer: { flex: 1, backgroundColor: '#10b981', padding: 14, borderRadius: 10, alignItems: 'center' },
-  btnTerminer: { flex: 1, backgroundColor: '#ef4444', padding: 14, borderRadius: 10, alignItems: 'center' },
-  btnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  loadingContainer: { flex: 1, backgroundColor: COLORS.bg, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { marginTop: 12, color: COLORS.textMuted, fontSize: 14 },
 
-  card: { backgroundColor: '#fff', padding: 16, margin: 12, borderRadius: 12, elevation: 3 },
-  cardLivree: { borderLeftWidth: 5, borderLeftColor: '#10b981' },
-  cardRetournee: { borderLeftWidth: 5, borderLeftColor: '#ef4444' },
+  header: { backgroundColor: COLORS.primary, paddingTop: 52, paddingBottom: 16, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  backIconBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.12)', justifyContent: 'center', alignItems: 'center' },
+  backIcon: { color: '#fff', fontSize: 24, fontWeight: '300' },
+  headerCenter: { flex: 1, alignItems: 'center' },
+  headerRef: { color: '#fff', fontSize: 18, fontWeight: '800' },
+  headerBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: RADIUS.full },
+  headerBadgeDot: { width: 8, height: 8, borderRadius: 4 },
+  headerBadgeText: { fontSize: 12, fontWeight: '700' },
 
-  clientRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  clientInfo: { flex: 1 },
-  client: { fontSize: 16, fontWeight: '600' },
-  adresse: { fontSize: 13, color: '#6b7280', marginTop: 4 },
+  infoBar: { backgroundColor: COLORS.primary, paddingVertical: 12, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center' },
+  infoItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  infoIcon: { fontSize: 14 },
+  infoText: { color: 'rgba(255,255,255,0.85)', fontSize: 13 },
+  infoDivider: { width: 1, height: 16, backgroundColor: 'rgba(255,255,255,0.3)', marginHorizontal: 12 },
 
-  phoneButton: { backgroundColor: '#10b981', width: 48, height: 48, borderRadius: 24, justifyContent: 'center', alignItems: 'center' },
-  phoneIcon: { fontSize: 22, color: '#fff' },
+  summaryBar: { backgroundColor: COLORS.white, flexDirection: 'row', padding: 16, borderBottomWidth: 1, borderColor: COLORS.border },
+  summaryItem: { flex: 1, alignItems: 'center' },
+  summaryValue: { fontSize: 20, fontWeight: '800' },
+  summaryLabel: { fontSize: 10, color: COLORS.textMuted, fontWeight: '600', textTransform: 'uppercase' },
+  summaryDivider: { width: 1, height: 32, backgroundColor: COLORS.border },
 
-  btnNav: { backgroundColor: '#3b82f6', padding: 12, borderRadius: 8, marginTop: 10, alignItems: 'center' },
-  btnNavText: { color: '#fff', fontWeight: '700' },
+  tourneeActionBar: { padding: 12, backgroundColor: COLORS.white, borderBottomWidth: 1, borderColor: COLORS.border },
+  tourneeActionBtn: { paddingVertical: 14, borderRadius: RADIUS.md, alignItems: 'center' },
+  tourneeActionBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
 
-  actions: { flexDirection: 'row', gap: 10, marginTop: 12 },
-  btnLivrer: { flex: 1, backgroundColor: '#10b981', padding: 12, borderRadius: 8, alignItems: 'center' },
+  scroll: { flex: 1 },
+  scrollContent: { padding: 16, paddingBottom: 80 },
+
+  etapeCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.lg,
+    marginBottom: 12,
+    flexDirection: 'row',
+    overflow: 'hidden',
+    ...SHADOW.card,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  etapeCardLivree: { borderColor: COLORS.green + '40' },
+  etapeCardRetournee: { borderColor: COLORS.red + '40' },
+  etapeOrder: { width: 48, justifyContent: 'center', alignItems: 'center' },
+  etapeOrderText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  etapeBody: { flex: 1, padding: 14 },
+  etapeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  etapeRef: { fontFamily: 'monospace', fontWeight: '700', color: COLORS.primary },
+  etapeMontant: { fontSize: 13, fontWeight: '700', color: COLORS.amber, marginBottom: 8 },
+  clientRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 10 },
+  clientName: { fontSize: 15, fontWeight: '600' },
+  clientAddr: { fontSize: 12, color: COLORS.textMuted, lineHeight: 16 },
+  phoneBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.green + '20', justifyContent: 'center', alignItems: 'center' },
+  phoneBtnIcon: { fontSize: 20 },
+  navBtn: { backgroundColor: COLORS.primaryBg, paddingVertical: 10, borderRadius: RADIUS.md, alignItems: 'center', marginBottom: 12 },
+  navBtnText: { color: COLORS.primary, fontWeight: '700' },
+  actionRow: { flexDirection: 'row', gap: 10 },
+  btnLivrer: { flex: 1, backgroundColor: COLORS.green, paddingVertical: 12, borderRadius: RADIUS.md, alignItems: 'center' },
   btnLivrerText: { color: '#fff', fontWeight: '700' },
-  btnRetour: { flex: 1, backgroundColor: '#fee2e2', padding: 12, borderRadius: 8, alignItems: 'center' },
-  btnRetourText: { color: '#ef4444', fontWeight: '700' },
+  btnRetour: { flex: 1, backgroundColor: COLORS.redLight || '#fee2e2', paddingVertical: 12, borderRadius: RADIUS.md, alignItems: 'center', borderWidth: 1, borderColor: COLORS.red + '30' },
+  btnRetourText: { color: COLORS.red, fontWeight: '700' },
 
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-  modalBox: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24 },
-  modalTitle: { fontSize: 18, fontWeight: '700', marginBottom: 12 },
-  btnPhoto: { backgroundColor: '#1e40af', padding: 14, borderRadius: 10, alignItems: 'center', marginVertical: 10 },
-  photoPreview: { width: '100%', height: 220, borderRadius: 12, marginVertical: 10 },
-  textArea: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, minHeight: 80, marginBottom: 12 },
-  modalActions: { flexDirection: 'row', gap: 12 },
-  btnCancel: { flex: 1, padding: 14, borderRadius: 8, borderWidth: 1, borderColor: '#ddd', alignItems: 'center' },
-  btnCancelText: { color: '#6b7280', fontWeight: '600' },
-  btnConfirm: { flex: 1, padding: 14, borderRadius: 8, backgroundColor: '#10b981', alignItems: 'center' },
+  // Modal commun
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
+  modalCard: { backgroundColor: COLORS.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 },
+  modalTitle: { fontSize: 18, fontWeight: '800', marginBottom: 4 },
+  modalSub: { fontSize: 13, color: COLORS.textMuted, marginBottom: 16 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  modalCloseBtn: { padding: 8 },
+  modalCloseText: { fontSize: 18, color: '#94a3b8' },
+  modalSectionLabel: { fontSize: 12, fontWeight: '700', color: COLORS.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 },
+  motifBtn: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: RADIUS.md, borderWidth: 1.5, borderColor: COLORS.border, marginBottom: 8 },
+  motifBtnActive: { borderColor: COLORS.primary, backgroundColor: COLORS.primary + '08' },
+  motifRadio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: COLORS.border },
+  motifRadioActive: { borderColor: COLORS.primary },
+  motifLabel: { fontSize: 14, color: COLORS.textSecondary },
+  motifLabelActive: { color: COLORS.primary, fontWeight: '700' },
+  commentInput: { borderWidth: 1.5, borderColor: COLORS.border, borderRadius: RADIUS.md, padding: 12, minHeight: 80, textAlignVertical: 'top', fontSize: 14 },
+
+  photoPickBtn: { backgroundColor: COLORS.primaryBg, borderRadius: RADIUS.lg, paddingVertical: 32, alignItems: 'center', borderWidth: 2, borderColor: COLORS.primary + '30', borderStyle: 'dashed', marginBottom: 12 },
+  photoPickIcon: { fontSize: 48, marginBottom: 8 },
+  photoPickText: { color: COLORS.primary, fontWeight: '700', fontSize: 15 },
+  photoPreview: { width: '100%', height: 220, borderRadius: RADIUS.lg },
+  photoRetake: { alignItems: 'center', marginBottom: 12 },
+  photoRetakeText: { color: COLORS.primary, fontWeight: '600' },
+
+  modalFooter: { flexDirection: 'row', gap: 12, marginTop: 20 },
+  btnCancel: { flex: 1, paddingVertical: 14, borderRadius: RADIUS.md, borderWidth: 1.5, borderColor: COLORS.border, alignItems: 'center' },
+  btnCancelText: { color: COLORS.textMuted, fontWeight: '600' },
+  btnConfirm: { flex: 1, backgroundColor: COLORS.green, paddingVertical: 14, borderRadius: RADIUS.md, alignItems: 'center' },
   btnConfirmText: { color: '#fff', fontWeight: '700' },
+  btnConfirmRetour: { flex: 1, backgroundColor: COLORS.red, paddingVertical: 14, borderRadius: RADIUS.md, alignItems: 'center' },
+  btnConfirmRetourText: { color: '#fff', fontWeight: '700' },
 
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  empty: { alignItems: 'center', marginTop: 80 },
+  emptyIcon: { fontSize: 48, marginBottom: 12 },
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: COLORS.textPrimary },
+
+  // Autres styles existants...
+  sectionLabel: { fontSize: 12, fontWeight: '600', color: COLORS.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 },
 });

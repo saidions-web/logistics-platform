@@ -1,7 +1,89 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { CheckCircle, XCircle, ChevronLeft, ChevronRight,
-         ChevronsLeft, ChevronsRight, AlertTriangle } from 'lucide-react'
+         ChevronsLeft, ChevronsRight, AlertTriangle, X, AlertCircle } from 'lucide-react'
 import { retoursApi } from '../services/api'
+
+// ════════════════════════════════════════════════════════
+// Système Toast
+// ════════════════════════════════════════════════════════
+function useToast() {
+  const [toasts, setToasts] = useState([])
+  const timerRef = useRef({})
+
+  const dismiss = useCallback((id) => {
+    setToasts(prev => prev.map(t => t.id === id ? { ...t, leaving: true } : t))
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 350)
+  }, [])
+
+  const toast = useCallback((message, type = 'success') => {
+    const id = Date.now() + Math.random()
+    setToasts(prev => [...prev, { id, message, type, leaving: false }])
+    timerRef.current[id] = setTimeout(() => dismiss(id), 4000)
+    return id
+  }, [dismiss])
+
+  const success = useCallback((msg) => toast(msg, 'success'), [toast])
+  const error   = useCallback((msg) => toast(msg, 'error'),   [toast])
+
+  useEffect(() => {
+    const timers = timerRef.current
+    return () => Object.values(timers).forEach(clearTimeout)
+  }, [])
+
+  return { toasts, success, error, dismiss }
+}
+
+function ToastContainer({ toasts, onDismiss }) {
+  if (!toasts.length) return null
+  return (
+    <div style={{
+      position: 'fixed', bottom: 24, right: 24,
+      display: 'flex', flexDirection: 'column', gap: 10,
+      zIndex: 9999, pointerEvents: 'none',
+    }}>
+      {toasts.map(t => (
+        <div
+          key={t.id}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '13px 16px',
+            background: t.type === 'success' ? '#f0fdf4' : '#fef2f2',
+            border: `1px solid ${t.type === 'success' ? '#bbf7d0' : '#fecaca'}`,
+            borderLeft: `4px solid ${t.type === 'success' ? '#16a34a' : '#dc2626'}`,
+            borderRadius: 10,
+            boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
+            minWidth: 280, maxWidth: 380,
+            pointerEvents: 'all',
+            cursor: 'pointer',
+            transform: t.leaving ? 'translateX(120%)' : 'translateX(0)',
+            opacity: t.leaving ? 0 : 1,
+            transition: 'transform 0.32s cubic-bezier(.4,0,.2,1), opacity 0.32s ease',
+            animation: t.leaving ? 'none' : 'toastIn 0.32s cubic-bezier(.16,1,.3,1)',
+          }}
+          onClick={() => onDismiss(t.id)}
+        >
+          {t.type === 'success'
+            ? <CheckCircle size={17} style={{ color: '#16a34a', flexShrink: 0 }} />
+            : <AlertCircle  size={17} style={{ color: '#dc2626', flexShrink: 0 }} />
+          }
+          <span style={{
+            fontSize: 13, fontWeight: 500, flex: 1,
+            color: t.type === 'success' ? '#15803d' : '#b91c1c',
+          }}>
+            {t.message}
+          </span>
+          <X size={14} style={{ color: t.type === 'success' ? '#86efac' : '#fca5a5', flexShrink: 0 }} />
+        </div>
+      ))}
+      <style>{`
+        @keyframes toastIn {
+          from { transform: translateX(110%); opacity: 0; }
+          to   { transform: translateX(0);    opacity: 1; }
+        }
+      `}</style>
+    </div>
+  )
+}
 
 // ─────────────────────────────────────────
 // CONSTANTES
@@ -304,18 +386,24 @@ export default function RetoursVendeur() {
               <p>Vos commandes retournées apparaîtront ici.</p>
             </div>
           ) : (
-            <table>
+            <table style={{ tableLayout: 'fixed', width: '100%' }}>
+              <colgroup>
+                <col style={{ width: '13%' }} />
+                <col style={{ width: '20%' }} />
+                <col style={{ width: '12%' }} />
+                <col style={{ width: '18%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '15%' }} />
+                <col style={{ width: '12%' }} />
+              </colgroup>
               <thead>
                 <tr>
                   <th>Référence</th>
-                  <th>Destinataire</th>
-                  <th>Gouvernorat</th>
+                  <th>Destinataire · Gouvernorat</th>
                   <th>Montant</th>
-                  <th>Motif</th>
-                  <th>Commentaire livreur</th>
-                  <th>Date retour</th>
-                  <th>Statut</th>
-                  <th>Décision</th>
+                  <th>Motif · Commentaire</th>
+                  <th>Date</th>
+                  <th>Statut · Décision</th>
                   <th>Action</th>
                 </tr>
               </thead>
@@ -325,46 +413,51 @@ export default function RetoursVendeur() {
                   return (
                     <tr key={r.id}>
                       <td>
-                        <span style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--accent)', fontWeight: 600, background: 'rgba(30,77,123,0.07)', padding: '3px 8px', borderRadius: 5 }}>
+                        <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--accent)', fontWeight: 600, background: 'rgba(30,77,123,0.07)', padding: '2px 7px', borderRadius: 5, display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {r.commande_reference}
                         </span>
                       </td>
-                      <td style={{ fontWeight: 500 }}>{r.commande_dest_nom} {r.commande_dest_prenom}</td>
-                      <td style={{ color: 'var(--text-muted)' }}>{r.commande_gouvernorat}</td>
-                      <td style={{ fontWeight: 600 }}>{r.commande_montant} TND</td>
+                      <td>
+                        <div style={{ fontWeight: 500, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.commande_dest_nom} {r.commande_dest_prenom}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{r.commande_gouvernorat}</div>
+                      </td>
+                      <td style={{ fontWeight: 600, fontSize: 13 }}>{r.commande_montant} TND</td>
                       <td>
                         <span style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 5,
-                          fontSize: 12, fontWeight: 600,
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          fontSize: 11, fontWeight: 600,
                           color: MOTIF_COLOR[r.motif],
                           background: `${MOTIF_COLOR[r.motif]}14`,
-                          padding: '3px 10px', borderRadius: 20,
+                          padding: '2px 8px', borderRadius: 20,
+                          whiteSpace: 'nowrap',
                         }}>
-                          <AlertTriangle size={11} />
+                          <AlertTriangle size={10} />
                           {MOTIF_LABEL[r.motif] || r.motif}
                         </span>
-                      </td>
-                      <td style={{ fontSize: 12, color: 'var(--text-muted)', maxWidth: 200 }}>
-                        {r.commentaire || '—'}
+                        {r.commentaire && (
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {r.commentaire}
+                          </div>
+                        )}
                       </td>
                       <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                         {new Date(r.date_retour).toLocaleDateString('fr-FR')}
                       </td>
-                      <td><span className={`badge ${sb.cls}`}>{sb.label}</span></td>
-                      <td style={{ fontSize: 12 }}>
+                      <td>
+                        <span className={`badge ${sb.cls}`} style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>{sb.label}</span>
                         {r.decision_vendeur ? (
-                          <span style={{ color: r.decision_vendeur === 'reprogrammer' ? '#16a34a' : '#ef4444', fontWeight: 600 }}>
-                            {r.decision_vendeur === 'reprogrammer' ? '🔁 Reprogrammé' : '❌ Annulé'}
+                          <span style={{ fontSize: 11, color: r.decision_vendeur === 'reprogrammer' ? '#16a34a' : '#ef4444', fontWeight: 600 }}>
+                            {r.decision_vendeur === 'reprogrammer' ? '🔁 Reprog.' : '❌ Annulé'}
                           </span>
                         ) : (
-                          <span style={{ color: '#9ca3af' }}>En attente</span>
+                          <span style={{ fontSize: 11, color: '#9ca3af' }}>En attente</span>
                         )}
                       </td>
                       <td>
                         {canDecide(r) && (
                           <button
                             className="btn btn-primary btn-sm"
-                            style={{ fontSize: 12 }}
+                            style={{ fontSize: 11, padding: '5px 10px' }}
                             onClick={() => setSelected(r)}
                           >
                             Décider

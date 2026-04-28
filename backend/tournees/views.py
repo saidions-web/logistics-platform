@@ -219,6 +219,34 @@ class TourneeDetailView(APIView):
                 tournee.livreur.save()
 
         return Response(TourneeSerializer(tournee).data)
+    def delete(self, request, pk):
+        """Supprimer une tournée (réservé à l'entreprise)"""
+        entreprise = get_entreprise_or_403(request.user)
+        if not entreprise:
+            return Response(
+                {'detail': 'Accès réservé aux entreprises.'},
+                status=403
+            )
+
+        tournee = get_object_or_404(Tournee, pk=pk, entreprise=entreprise)
+
+        # Sécurité forte
+        if tournee.statut in [StatutTournee.EN_COURS, StatutTournee.TERMINEE]:
+            return Response({
+                'detail': 'Impossible de supprimer une tournée en cours ou terminée.'
+            }, status=400)
+
+        # Optionnel : avertissement si la tournée contient des commandes
+        if tournee.affectations.exists():
+            # Tu peux choisir de bloquer ou d'autoriser
+            # Pour l'instant on autorise mais avec un message clair
+            pass
+
+        tournee.delete()
+
+        return Response({
+            'detail': f'Tournée {tournee.reference} supprimée avec succès.'
+        }, status=204)
 
 # ─────────────────────────────────────────
 # US-18 — Affectation automatique

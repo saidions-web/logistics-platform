@@ -1,9 +1,92 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Plus, Search, Package, Pencil, X, Eye, Download, Star,
-         ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
+         ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
+         CheckCircle, AlertCircle } from 'lucide-react'
 import { commandesApi } from '../services/api'
 import { DetailCommandeModal } from './DetailCommande'
 import RecommandationModal from './RecommandationModal'
+
+// ════════════════════════════════════════════════════════
+// Système Toast — hook + composant
+// ════════════════════════════════════════════════════════
+function useToast() {
+  const [toasts, setToasts] = useState([])
+  const timerRef = useRef({})
+
+  const dismiss = useCallback((id) => {
+    setToasts(prev => prev.map(t => t.id === id ? { ...t, leaving: true } : t))
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 350)
+  }, [])
+
+  const toast = useCallback((message, type = 'success') => {
+    const id = Date.now() + Math.random()
+    setToasts(prev => [...prev, { id, message, type, leaving: false }])
+    timerRef.current[id] = setTimeout(() => dismiss(id), 4000)
+    return id
+  }, [dismiss])
+
+  const success = useCallback((msg) => toast(msg, 'success'), [toast])
+  const error   = useCallback((msg) => toast(msg, 'error'),   [toast])
+
+  useEffect(() => {
+    const timers = timerRef.current
+    return () => Object.values(timers).forEach(clearTimeout)
+  }, [])
+
+  return { toasts, success, error, dismiss }
+}
+
+function ToastContainer({ toasts, onDismiss }) {
+  if (!toasts.length) return null
+  return (
+    <div style={{
+      position: 'fixed', bottom: 24, right: 24,
+      display: 'flex', flexDirection: 'column', gap: 10,
+      zIndex: 9999, pointerEvents: 'none',
+    }}>
+      {toasts.map(t => (
+        <div
+          key={t.id}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '13px 16px',
+            background: t.type === 'success' ? '#f0fdf4' : '#fef2f2',
+            border: `1px solid ${t.type === 'success' ? '#bbf7d0' : '#fecaca'}`,
+            borderLeft: `4px solid ${t.type === 'success' ? '#16a34a' : '#dc2626'}`,
+            borderRadius: 10,
+            boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
+            minWidth: 280, maxWidth: 380,
+            pointerEvents: 'all',
+            cursor: 'pointer',
+            transform: t.leaving ? 'translateX(120%)' : 'translateX(0)',
+            opacity: t.leaving ? 0 : 1,
+            transition: 'transform 0.32s cubic-bezier(.4,0,.2,1), opacity 0.32s ease',
+            animation: t.leaving ? 'none' : 'toastIn 0.32s cubic-bezier(.16,1,.3,1)',
+          }}
+          onClick={() => onDismiss(t.id)}
+        >
+          {t.type === 'success'
+            ? <CheckCircle size={17} style={{ color: '#16a34a', flexShrink: 0 }} />
+            : <AlertCircle  size={17} style={{ color: '#dc2626', flexShrink: 0 }} />
+          }
+          <span style={{
+            fontSize: 13, fontWeight: 500, flex: 1,
+            color: t.type === 'success' ? '#15803d' : '#b91c1c',
+          }}>
+            {t.message}
+          </span>
+          <X size={14} style={{ color: t.type === 'success' ? '#86efac' : '#fca5a5', flexShrink: 0 }} />
+        </div>
+      ))}
+      <style>{`
+        @keyframes toastIn {
+          from { transform: translateX(110%); opacity: 0; }
+          to   { transform: translateX(0);    opacity: 1; }
+        }
+      `}</style>
+    </div>
+  )
+}
 
 const GOUVERNORATS = [
   'Tunis','Ariana','Ben Arous','Manouba','Nabeul','Zaghouan','Bizerte',
@@ -254,7 +337,7 @@ function CommandeForm({ form, setForm, error, loading, onSubmit, onClose, isEdit
 // ════════════════════════════════════════════════════════
 // Modal Créer
 // ════════════════════════════════════════════════════════
-function AddCommandeModal({ onClose, onCreated }) {
+function AddCommandeModal({ onClose, onCreated, onToast }) {
   const [form, setForm] = useState({
     dest_nom: '', dest_prenom: '', dest_telephone: '',
     dest_adresse: '', dest_gouvernorat: 'Tunis',
@@ -264,37 +347,36 @@ function AddCommandeModal({ onClose, onCreated }) {
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState('')
 
-  // Dans AddCommandeModal — handleSubmit simplifié
-const handleSubmit = async (e) => {
-  e.preventDefault()
-  setError('')
-  setLoading(true)
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
 
-  try {
-    // ✅ Création simple sans recommandation_id
-    // Le scoring se fait après via le bouton ⭐
-    await commandesApi.create({
-      ...form,
-      montant_a_collecter: parseFloat(form.montant_a_collecter),
-      colis: form.colis.map(c => ({
-        ...c,
-        poids: parseFloat(c.poids),
-      })),
-    })
+    try {
+      const response = await commandesApi.create({
+        ...form,
+        montant_a_collecter: parseFloat(form.montant_a_collecter),
+        colis: form.colis.map(c => ({
+          ...c,
+          poids: parseFloat(c.poids),
+        })),
+      })
 
-    onCreated()
-    onClose()
-  } catch (err) {
-    const data = err.response?.data || {}
-    setError(
-      data.detail ||
-      Object.values(data).flat().join(' • ') ||
-      'Une erreur est survenue.'
-    )
-  } finally {
-    setLoading(false)
+      const msg = response.data.message || "Commande créée avec succès !"
+      onToast?.success(msg)
+      onCreated()
+      onClose()
+    } catch (err) {
+      const data = err.response?.data || {}
+      setError(
+        data.detail ||
+        Object.values(data).flat().join(' • ') ||
+        'Une erreur est survenue.'
+      )
+    } finally {
+      setLoading(false)
+    }
   }
-}
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -320,7 +402,7 @@ const handleSubmit = async (e) => {
 // ════════════════════════════════════════════════════════
 // Modal Modifier
 // ════════════════════════════════════════════════════════
-function EditCommandeModal({ commande, onClose, onUpdated }) {
+function EditCommandeModal({ commande, onClose, onUpdated, onToast }) {
   const [form, setForm] = useState({
     dest_nom:            commande.dest_nom,
     dest_prenom:         commande.dest_prenom,
@@ -358,8 +440,7 @@ function EditCommandeModal({ commande, onClose, onUpdated }) {
 
       // ✅ Message de succès depuis le backend
       const successMsg = response.data.message || "La commande a été modifiée avec succès !"
-      alert(successMsg)
-      // toast.success(successMsg)
+      onToast?.success(successMsg)
 
       onUpdated()
       onClose()
@@ -402,7 +483,7 @@ function EditCommandeModal({ commande, onClose, onUpdated }) {
 // ════════════════════════════════════════════════════════
 // Modal Annuler
 // ════════════════════════════════════════════════════════
-function CancelModal({ commande, onClose, onCancelled }) {
+function CancelModal({ commande, onClose, onCancelled, onToast }) {
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState('')
 
@@ -412,8 +493,7 @@ function CancelModal({ commande, onClose, onCancelled }) {
       const response = await commandesApi.cancel(commande.id)
       
       const successMsg = response.data.message || "La commande a été annulée avec succès."
-      alert(successMsg)
-      // toast.success(successMsg)
+      onToast?.success(successMsg)
 
       onCancelled()
       onClose()
@@ -470,6 +550,9 @@ export default function Colis() {
   const [search, setSearch]             = useState('')
   const [filterStatut, setFilterStatut] = useState('tous')
 
+  // Toast system
+  const { toasts, success: toastSuccess, error: toastError, dismiss: toastDismiss } = useToast()
+
   // Modals
   const [showAdd, setShowAdd]       = useState(false)
   const [editTarget, setEditTarget] = useState(null)
@@ -491,6 +574,7 @@ export default function Colis() {
       setPage(1)
     } catch {
       setCommandes([])
+      toastError('Impossible de charger les commandes.')
     } finally {
       setLoading(false)
     }
@@ -519,35 +603,43 @@ export default function Colis() {
   const canCancel = (c) => c.statut === 'en_attente'
 
   const exportExcel = async () => {
-    const XLSX = await import('xlsx')
-    const data = filtered.map(c => ({
-      'Référence':          c.reference,
-      'Nom':                c.dest_nom,
-      'Prénom':             c.dest_prenom,
-      'Téléphone':          c.dest_telephone,
-      'Adresse':            c.dest_adresse || '',
-      'Gouvernorat':        c.dest_gouvernorat,
-      'Type de livraison':  TYPES_LIVRAISON.find(t => t.value === c.type_livraison)?.label || c.type_livraison,
-      'Montant (TND)':      parseFloat(c.montant_a_collecter),
-      'Nb colis':           c.nombre_colis,
-      'Poids total (kg)':   parseFloat(c.poids_total),
-      'Statut':             STATUT_LABEL[c.statut] || c.statut,
-      'Notes':              c.notes || '',
-      'Date création':      new Date(c.created_at).toLocaleDateString('fr-FR'),
-    }))
-    const ws = XLSX.utils.json_to_sheet(data)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Commandes')
-    XLSX.writeFile(wb, `commandes_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    try {
+      const XLSX = await import('xlsx')
+      const data = filtered.map(c => ({
+        'Référence':          c.reference,
+        'Nom':                c.dest_nom,
+        'Prénom':             c.dest_prenom,
+        'Téléphone':          c.dest_telephone,
+        'Adresse':            c.dest_adresse || '',
+        'Gouvernorat':        c.dest_gouvernorat,
+        'Type de livraison':  TYPES_LIVRAISON.find(t => t.value === c.type_livraison)?.label || c.type_livraison,
+        'Montant (TND)':      parseFloat(c.montant_a_collecter),
+        'Nb colis':           c.nombre_colis,
+        'Poids total (kg)':   parseFloat(c.poids_total),
+        'Statut':             STATUT_LABEL[c.statut] || c.statut,
+        'Notes':              c.notes || '',
+        'Date création':      new Date(c.created_at).toLocaleDateString('fr-FR'),
+      }))
+      const ws = XLSX.utils.json_to_sheet(data)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Commandes')
+      XLSX.writeFile(wb, `commandes_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      toastSuccess(`${data.length} commande${data.length > 1 ? 's' : ''} exportée${data.length > 1 ? 's' : ''} avec succès.`)
+    } catch {
+      toastError("Erreur lors de l'export Excel.")
+    }
   }
 
   return (
     <div className="animate-fade-up">
 
+      {/* Toast notifications */}
+      <ToastContainer toasts={toasts} onDismiss={toastDismiss} />
+
       {/* Modals */}
-      {showAdd      && <AddCommandeModal onClose={() => setShowAdd(false)} onCreated={fetchCommandes} />}
-      {editTarget   && <EditCommandeModal commande={editTarget} onClose={() => setEditTarget(null)} onUpdated={fetchCommandes} />}
-      {cancelTarget && <CancelModal commande={cancelTarget} onClose={() => setCancelTarget(null)} onCancelled={fetchCommandes} />}
+      {showAdd      && <AddCommandeModal onClose={() => setShowAdd(false)} onCreated={fetchCommandes} onToast={{ success: toastSuccess, error: toastError }} />}
+      {editTarget   && <EditCommandeModal commande={editTarget} onClose={() => setEditTarget(null)} onUpdated={fetchCommandes} onToast={{ success: toastSuccess, error: toastError }} />}
+      {cancelTarget && <CancelModal commande={cancelTarget} onClose={() => setCancelTarget(null)} onCancelled={fetchCommandes} onToast={{ success: toastSuccess, error: toastError }} />}
       {detailId     && <DetailCommandeModal commandeId={detailId} onClose={() => setDetailId(null)} />}
       {recoTarget   && <RecommandationModal commande={recoTarget} onClose={() => setRecoTarget(null)} onConfirme={fetchCommandes} />}
 
@@ -590,17 +682,23 @@ export default function Colis() {
               <p>Modifiez votre recherche ou créez une nouvelle commande.</p>
             </div>
           ) : (
-            <table>
+            <table style={{ tableLayout: 'fixed', width: '100%' }}>
+              <colgroup>
+                <col style={{ width: '13%' }} />
+                <col style={{ width: '22%' }} />
+                <col style={{ width: '13%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '12%' }} />
+                <col style={{ width: '12%' }} />
+                <col style={{ width: '18%' }} />
+              </colgroup>
               <thead>
                 <tr>
                   <th>Référence</th>
                   <th>Destinataire</th>
-                  <th>Téléphone</th>
                   <th>Gouvernorat</th>
-                  <th>Colis</th>
-                  <th>Poids</th>
-                  <th>Montant</th>
-                  <th>Type</th>
+                  <th>Colis · Poids</th>
+                  <th>Montant · Type</th>
                   <th>Statut</th>
                   <th>Actions</th>
                 </tr>
@@ -609,45 +707,48 @@ export default function Colis() {
                 {paginated.map(c => (
                   <tr key={c.id}>
                     <td>
-                      <span style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--accent)', fontWeight: 600, background: 'rgba(30,77,123,0.07)', padding: '3px 8px', borderRadius: 5 }}>
+                      <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--accent)', fontWeight: 600, background: 'rgba(30,77,123,0.07)', padding: '2px 7px', borderRadius: 5, display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {c.reference}
                       </span>
                     </td>
                     <td>
-                      <div style={{ fontWeight: 500 }}>{c.dest_nom} {c.dest_prenom}</div>
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{c.dest_adresse}</div>
+                      <div style={{ fontWeight: 500, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.dest_nom} {c.dest_prenom}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{c.dest_telephone}</div>
                     </td>
-                    <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{c.dest_telephone}</td>
-                    <td style={{ color: 'var(--text-muted)' }}>{c.dest_gouvernorat}</td>
-                    <td style={{ textAlign: 'center' }}>{c.nombre_colis}</td>
-                    <td style={{ color: 'var(--text-muted)' }}>{c.poids_total} kg</td>
-                    <td style={{ fontWeight: 600 }}>{c.montant_a_collecter} TND</td>
-                    <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-                      {TYPES_LIVRAISON.find(t => t.value === c.type_livraison)?.label || c.type_livraison}
+                    <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{c.dest_gouvernorat}</td>
+                    <td>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>{c.nombre_colis} colis</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{c.poids_total} kg</div>
                     </td>
                     <td>
-                      <span className={`badge ${STATUT_BADGE[c.statut] || 'badge-warning'}`}>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{c.montant_a_collecter} TND</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
+                        {TYPES_LIVRAISON.find(t => t.value === c.type_livraison)?.label || c.type_livraison}
+                      </div>
+                    </td>
+                    <td>
+                      <span className={`badge ${STATUT_BADGE[c.statut] || 'badge-warning'}`} style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
                         {STATUT_LABEL[c.statut] || c.statut}
                       </span>
                     </td>
                     <td>
-                      <div style={{ display: 'flex', gap: 6 }}>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                         <button title="Recommandation prestataire" onClick={() => setRecoTarget(c)}
                           disabled={c.statut !== 'en_attente'}
                           style={{ background: 'none', border: 'none', cursor: c.statut === 'en_attente' ? 'pointer' : 'not-allowed', color: c.statut === 'en_attente' ? '#f59e0b' : 'var(--text-muted)', padding: 4 }}>
-                          <Star size={15} />
+                          <Star size={14} />
                         </button>
                         <button title="Voir le détail" onClick={() => setDetailId(c.id)}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', padding: 4 }}>
-                          <Eye size={15} />
+                          <Eye size={14} />
                         </button>
                         <button title="Modifier" onClick={() => setEditTarget(c)} disabled={!canEdit(c)}
                           style={{ background: 'none', border: 'none', cursor: canEdit(c) ? 'pointer' : 'not-allowed', color: canEdit(c) ? 'var(--accent)' : 'var(--text-muted)', padding: 4 }}>
-                          <Pencil size={15} />
+                          <Pencil size={14} />
                         </button>
                         <button title="Annuler la commande" onClick={() => setCancelTarget(c)} disabled={!canCancel(c)}
                           style={{ background: 'none', border: 'none', cursor: canCancel(c) ? 'pointer' : 'not-allowed', color: canCancel(c) ? 'var(--danger,#ef4444)' : 'var(--text-muted)', padding: 4 }}>
-                          <X size={15} />
+                          <X size={14} />
                         </button>
                       </div>
                     </td>
