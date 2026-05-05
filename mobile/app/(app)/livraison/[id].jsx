@@ -1,6 +1,11 @@
 /**
  * app/(app)/livraison/[id].jsx — Détail Tournée Livreur
- * Design aligned with web DashboardEntreprise / tournee.jsx theme
+ * FIX GPS :
+ *  1. Utilise tournee.livreur (int FK) au lieu de tournee.livreur.id
+ *  2. Import expo-location statique en haut du fichier
+ *  3. Accuracy HIGH (Location.Accuracy.High = 5)
+ *  4. Envoi GPS démarre dès que la tournée est 'en_cours' ET que l'id livreur est connu
+ *  5. Nettoyage propre du watchPositionAsync à l'unmount
  */
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -20,6 +25,8 @@ import {
   View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+// ✅ FIX 1 : Import statique (pas dynamique dans une fonction)
+import * as Location from 'expo-location';
 
 import api from '../../../services/api';
 import {
@@ -29,14 +36,15 @@ import {
 } from '../../../constants/theme';
 
 const MOTIFS = [
-  { value: 'client_absent', label: 'Client absent' },
-  { value: 'injoignable', label: 'Injoignable' },
-  { value: 'refus_client', label: 'Refus du client' },
+  { value: 'client_absent',    label: 'Client absent' },
+  { value: 'injoignable',      label: 'Injoignable' },
+  { value: 'refus_client',     label: 'Refus du client' },
   { value: 'adresse_invalide', label: 'Adresse invalide' },
-  { value: 'autre', label: 'Autre' },
+  { value: 'autre',            label: 'Autre' },
 ];
 
-const GPS_INTERVAL = 30000;
+// ✅ FIX 2 : Intervalle réduit à 15s pour un suivi plus fluide
+const GPS_INTERVAL_MS = 15000;
 
 // ─────────────────────────────────────────
 // HELPERS
@@ -58,8 +66,8 @@ function ouvrirNavigation(etape) {
     hasGPS ? 'Position GPS précise disponible' : 'Navigation par adresse',
     [
       { text: 'Google Maps', onPress: () => Linking.openURL(googleUrl).catch(() => Alert.alert('Erreur', "Impossible d'ouvrir Google Maps")) },
-      { text: 'Waze', onPress: () => Linking.openURL(wazeUrl).catch(() => Alert.alert('Erreur', "Impossible d'ouvrir Waze")) },
-      { text: 'Annuler', style: 'cancel' },
+      { text: 'Waze',        onPress: () => Linking.openURL(wazeUrl).catch(() => Alert.alert('Erreur', "Impossible d'ouvrir Waze")) },
+      { text: 'Annuler',     style: 'cancel' },
     ]
   );
 }
@@ -77,14 +85,14 @@ function SummaryItem({ value, label, color }) {
 }
 
 function SummaryBar({ etapes }) {
-  const total = etapes.length;
+  const total   = etapes.length;
   const livrees = etapes.filter(e => e.commande_statut === 'livree').length;
   const retours = etapes.filter(e => e.commande_statut === 'retournee').length;
   const restant = total - livrees - retours;
 
   return (
     <View style={styles.summaryBar}>
-      <SummaryItem value={total} label="Total" color={COLORS.primary} />
+      <SummaryItem value={total}   label="Total"   color={COLORS.primary} />
       <View style={styles.summaryDivider} />
       <SummaryItem value={livrees} label="Livrées" color={COLORS.green} />
       <View style={styles.summaryDivider} />
@@ -96,7 +104,7 @@ function SummaryBar({ etapes }) {
 }
 
 function StatusBadge({ statut }) {
-  const key = STATUT_BADGE?.[statut] || 'default';
+  const key   = STATUT_BADGE?.[statut] || 'default';
   const theme = BADGE?.[key] || { bg: '#e5e7eb', text: '#6b7280' };
   return (
     <View style={[styles.statusBadge, { backgroundColor: theme.bg }]}>
@@ -108,18 +116,18 @@ function StatusBadge({ statut }) {
 }
 
 function EtapeCard({ etape, estEnCours, estTerminee, onLivrer, onRetour, onNaviguer, onCall }) {
-  const estLivree = etape.commande_statut === 'livree';
+  const estLivree   = etape.commande_statut === 'livree';
   const estRetournee = etape.commande_statut === 'retournee';
 
   return (
     <View style={[
       styles.etapeCard,
-      estLivree && styles.etapeCardLivree,
+      estLivree    && styles.etapeCardLivree,
       estRetournee && styles.etapeCardRetournee,
     ]}>
       <View style={[
         styles.etapeOrder,
-        estLivree && { backgroundColor: COLORS.green },
+        estLivree    && { backgroundColor: COLORS.green },
         estRetournee && { backgroundColor: COLORS.red },
       ]}>
         <Text style={styles.etapeOrderText}>
@@ -175,10 +183,10 @@ function EtapeCard({ etape, estEnCours, estTerminee, onLivrer, onRetour, onNavig
 }
 
 // ─────────────────────────────────────────
-// MODAL PREUVE DE LIVRAISON (OBLIGATOIRE)
+// MODAL PREUVE DE LIVRAISON
 // ─────────────────────────────────────────
 function PreuveLivraisonModal({ visible, etape, onClose, onConfirm, loading }) {
-  const [photoUri, setPhotoUri] = useState(null);
+  const [photoUri, setPhotoUri]       = useState(null);
   const [commentaire, setCommentaire] = useState('');
 
   const pickImage = async () => {
@@ -187,7 +195,6 @@ function PreuveLivraisonModal({ visible, etape, onClose, onConfirm, loading }) {
       aspect: [4, 3],
       quality: 0.8,
     });
-
     if (!result.canceled) {
       setPhotoUri(result.assets[0].uri);
     }
@@ -231,7 +238,7 @@ function PreuveLivraisonModal({ visible, etape, onClose, onConfirm, loading }) {
             </TouchableOpacity>
           )}
 
-          <Text style={styles.label}>Commentaire (optionnel)</Text>
+          <Text style={styles.modalSectionLabel}>Commentaire (optionnel)</Text>
           <TextInput
             style={styles.commentInput}
             placeholder="Ex : Livré en main propre, signature obtenue..."
@@ -252,11 +259,10 @@ function PreuveLivraisonModal({ visible, etape, onClose, onConfirm, loading }) {
               onPress={handleSubmit}
               disabled={loading}
             >
-              {loading ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Text style={styles.btnConfirmText}>Confirmer la livraison</Text>
-              )}
+              {loading
+                ? <ActivityIndicator color="#fff" size="small" />
+                : <Text style={styles.btnConfirmText}>Confirmer la livraison</Text>
+              }
             </TouchableOpacity>
           </View>
         </View>
@@ -269,7 +275,7 @@ function PreuveLivraisonModal({ visible, etape, onClose, onConfirm, loading }) {
 // MODAL RETOUR
 // ─────────────────────────────────────────
 function RetourModal({ visible, onClose, onConfirm, loading }) {
-  const [motif, setMotif] = useState('');
+  const [motif, setMotif]             = useState('');
   const [commentaire, setCommentaire] = useState('');
 
   const reset = () => { setMotif(''); setCommentaire(''); };
@@ -332,7 +338,10 @@ function RetourModal({ visible, onClose, onConfirm, loading }) {
               onPress={handleConfirm}
               disabled={loading}
             >
-              {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.btnConfirmRetourText}>Confirmer</Text>}
+              {loading
+                ? <ActivityIndicator color="#fff" size="small" />
+                : <Text style={styles.btnConfirmRetourText}>Confirmer</Text>
+              }
             </TouchableOpacity>
           </View>
         </View>
@@ -346,23 +355,25 @@ function RetourModal({ visible, onClose, onConfirm, loading }) {
 // ─────────────────────────────────────────
 export default function LivraisonDetailScreen() {
   const { id } = useLocalSearchParams();
-  const router = useRouter();
+  const router  = useRouter();
 
-  const [tournee, setTournee] = useState(null);
-  const [etapes, setEtapes] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [tournee, setTournee]         = useState(null);
+  const [etapes, setEtapes]           = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [refreshing, setRefreshing]   = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [gpsStatus, setGpsStatus]     = useState('idle'); // 'idle' | 'active' | 'error'
 
-  // Modals
-  const [retourTarget, setRetourTarget] = useState(null);
-  const [livrerTarget, setLivrerTarget] = useState(null);   // ← Preuve livraison
+  const [retourTarget, setRetourTarget]   = useState(null);
+  const [livrerTarget, setLivrerTarget]   = useState(null);
   const [retourLoading, setRetourLoading] = useState(false);
   const [preuveLoading, setPreuveLoading] = useState(false);
 
-  const gpsRef = useRef(null);
+  // ✅ FIX 3 : On utilise un ref pour stocker l'abonnement watchPositionAsync
+  const gpsSubscriptionRef = useRef(null);
+  const gpsIntervalRef     = useRef(null);
 
-  // Chargement des données
+  // ─── Chargement des données ───────────────────────────────────
   const load = useCallback(async () => {
     try {
       const [resTournee, resEtapes] = await Promise.all([
@@ -382,41 +393,119 @@ export default function LivraisonDetailScreen() {
 
   useEffect(() => { load(); }, [load]);
 
-  // GPS Polling
+  // ─── GPS : démarre / stoppe selon statut tournée ──────────────
   useEffect(() => {
-    const startGPS = async () => {
-      try {
-        const { status } = await (await import('expo-location')).requestForegroundPermissionsAsync();
-        if (status !== 'granted') return;
+    // ✅ FIX 4 : livreur est un INT (FK), pas un objet
+    // Le sérialiseur TourneeSerializer renvoie livreur comme l'ID entier
+    const livreurId = tournee?.livreur;   // int directement
+    const estEnCours = tournee?.statut === 'en_cours';
 
-        const sendPos = async () => {
-          try {
-            const loc = await (await import('expo-location')).getCurrentPositionAsync({ accuracy: 4 });
-            if (tournee?.livreur?.id) {
-              await api.post(`/entreprise/livreurs/${tournee.livreur.id}/position/`, {
-                latitude: loc.coords.latitude,
-                longitude: loc.coords.longitude,
-              });
-            }
-          } catch {}
-        };
+    if (!estEnCours || !livreurId) {
+      // Arrêter le GPS si la tournée n'est plus en cours
+      stopGPS();
+      return;
+    }
 
-        sendPos();
-        gpsRef.current = setInterval(sendPos, GPS_INTERVAL);
-      } catch {}
-    };
+    startGPS(livreurId);
 
-    if (tournee?.statut === 'en_cours') startGPS();
-
-    return () => { if (gpsRef.current) clearInterval(gpsRef.current); };
+    return () => stopGPS();
   }, [tournee?.statut, tournee?.livreur]);
 
-  // Marquer livré → ouvre modal preuve
+  // ─── Fonctions GPS ────────────────────────────────────────────
+
+  const stopGPS = () => {
+    if (gpsSubscriptionRef.current) {
+      gpsSubscriptionRef.current.remove();
+      gpsSubscriptionRef.current = null;
+    }
+    if (gpsIntervalRef.current) {
+      clearInterval(gpsIntervalRef.current);
+      gpsIntervalRef.current = null;
+    }
+  };
+
+  const startGPS = async (livreurId) => {
+    // Éviter double démarrage
+    if (gpsSubscriptionRef.current || gpsIntervalRef.current) return;
+
+    try {
+      // ✅ FIX 5 : Demande de permission propre
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setGpsStatus('error');
+        Alert.alert(
+          'GPS requis',
+          'Activez la localisation pour permettre le suivi de votre tournée.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      setGpsStatus('active');
+
+      // Envoyer la position immédiatement
+      await sendPosition(livreurId);
+
+      // ✅ FIX 6 : Polling régulier via setInterval (plus fiable que watchPositionAsync en background)
+      gpsIntervalRef.current = setInterval(() => {
+        sendPosition(livreurId);
+      }, GPS_INTERVAL_MS);
+
+    } catch (err) {
+      console.error('[GPS] Erreur démarrage :', err);
+      setGpsStatus('error');
+    }
+  };
+
+  // ✅ FIX 7 : Fonction sendPosition isolée et réutilisable
+  const sendPosition = async (livreurId) => {
+    try {
+      // ✅ FIX 8 : Accuracy HIGH (5) au lieu de Balanced (4)
+      const loc = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+
+      await api.post(`/entreprise/livreurs/${livreurId}/position/`, {
+        latitude:  loc.coords.latitude,
+        longitude: loc.coords.longitude,
+      });
+
+      console.log(`[GPS] Position envoyée : ${loc.coords.latitude}, ${loc.coords.longitude}`);
+    } catch (err) {
+      // Erreur silencieuse — on réessaiera au prochain tick
+      console.warn('[GPS] Échec envoi position :', err?.message || err);
+    }
+  };
+
+  // ─── Actions tournée ──────────────────────────────────────────
+
+  const changerStatutTournee = async (nouveauStatut) => {
+    const msg = nouveauStatut === 'en_cours' ? 'Démarrer la tournée ?' : 'Terminer la tournée ?';
+    Alert.alert('Confirmation', msg, [
+      { text: 'Annuler', style: 'cancel' },
+      {
+        text: 'Confirmer',
+        onPress: async () => {
+          setActionLoading(true);
+          try {
+            await api.patch(`/entreprise/livreur/tournees/${id}/statut/`, {
+              statut: nouveauStatut,
+            });
+            await load();
+          } catch (err) {
+            Alert.alert('Erreur', err.response?.data?.detail || 'Impossible de modifier le statut.');
+          } finally {
+            setActionLoading(false);
+          }
+        },
+      },
+    ]);
+  };
+
   const handleLivrer = (etape) => {
     setLivrerTarget(etape);
   };
 
-  // Confirmer livraison avec preuve
   const handlePreuveConfirm = async ({ etape, photoUri, commentaire }) => {
     setPreuveLoading(true);
     try {
@@ -434,7 +523,6 @@ export default function LivraisonDetailScreen() {
     }
   };
 
-  // Déclarer retour
   const handleRetourConfirm = async ({ motif, commentaire }) => {
     if (!retourTarget) return;
     setRetourLoading(true);
@@ -454,57 +542,31 @@ export default function LivraisonDetailScreen() {
     }
   };
 
-  const handleCall = (tel) => {
-    if (!tel) return;
-    const clean = tel.replace(/\s/g, '');
-    Linking.openURL(`tel:${clean}`).catch(() => Alert.alert('Erreur', "Impossible de passer l'appel."));
+  const handleCall = (telephone) => {
+    if (!telephone) return;
+    const tel = telephone.replace(/\s/g, '');
+    Linking.openURL(`tel:${tel}`).catch(() =>
+      Alert.alert('Erreur', "Impossible d'ouvrir le téléphone.")
+    );
   };
 
-  const changerStatutTournee = async (nouveauStatut) => {
-    const msg = nouveauStatut === 'en_cours' ? 'Démarrer cette tournée ?' : 'Terminer cette tournée ?';
-    Alert.alert('Confirmation', msg, [
-      { text: 'Annuler', style: 'cancel' },
-      {
-        text: 'Confirmer',
-        onPress: async () => {
-          setActionLoading(true);
-          try {
-            await api.patch(`/entreprise/tournees/${id}/`, { statut: nouveauStatut });
-            await load();
-          } catch {
-            Alert.alert('Erreur', "Impossible de modifier le statut de la tournée.");
-          } finally {
-            setActionLoading(false);
-          }
-        },
-      },
-    ]);
-  };
+  // ─── Render ───────────────────────────────────────────────────
 
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={COLORS.primary} />
-        <Text style={styles.loadingText}>Chargement de la tournée…</Text>
+        <Text style={styles.loadingText}>Chargement…</Text>
       </View>
     );
   }
 
-  if (!tournee) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.emptyIcon}>⚠️</Text>
-        <Text style={styles.emptyTitle}>Tournée introuvable</Text>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <Text style={styles.backBtnText}>← Retour</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+  const estEnCours  = tournee?.statut === 'en_cours';
+  const estPlanifie = tournee?.statut === 'planifiee';
+  const estTerminee = tournee?.statut === 'terminee';
 
-  const estEnCours = tournee.statut === 'en_cours';
-  const estTerminee = tournee.statut === 'terminee';
-  const estPlanifie = tournee.statut === 'planifiee';
+  const statusColor = TOURNEE_STATUT_COLOR?.[tournee?.statut] || COLORS.textMuted;
+  const statusLabel = TOURNEE_STATUT_LABEL?.[tournee?.statut] || tournee?.statut;
 
   return (
     <View style={styles.container}>
@@ -512,33 +574,63 @@ export default function LivraisonDetailScreen() {
 
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backIconBtn}>
+        <TouchableOpacity
+          style={styles.backIconBtn}
+          onPress={() => router.back()}
+          activeOpacity={0.8}
+        >
           <Text style={styles.backIcon}>‹</Text>
         </TouchableOpacity>
+
         <View style={styles.headerCenter}>
-          <Text style={styles.headerRef}>{tournee.reference}</Text>
-          <View style={[styles.headerBadge, { backgroundColor: (TOURNEE_STATUT_COLOR?.[tournee.statut] || COLORS.primary) + '28' }]}>
-            <View style={[styles.headerBadgeDot, { backgroundColor: TOURNEE_STATUT_COLOR?.[tournee.statut] || COLORS.primary }]} />
-            <Text style={[styles.headerBadgeText, { color: TOURNEE_STATUT_COLOR?.[tournee.statut] || COLORS.primary }]}>
-              {TOURNEE_STATUT_LABEL?.[tournee.statut] || tournee.statut}
+          <Text style={styles.headerRef}>{tournee?.reference}</Text>
+          <View style={[styles.headerBadge, { backgroundColor: statusColor + '22' }]}>
+            <View style={[styles.headerBadgeDot, { backgroundColor: statusColor }]} />
+            <Text style={[styles.headerBadgeText, { color: statusColor }]}>
+              {statusLabel}
             </Text>
           </View>
         </View>
+
+        {/* ✅ Indicateur GPS visible */}
+        <View style={styles.gpsIndicator}>
+          <View style={[
+            styles.gpsDot,
+            gpsStatus === 'active' && styles.gpsDotActive,
+            gpsStatus === 'error'  && styles.gpsDotError,
+          ]} />
+          <Text style={styles.gpsLabel}>
+            {gpsStatus === 'active' ? 'GPS' : gpsStatus === 'error' ? 'GPS!' : ''}
+          </Text>
+        </View>
       </View>
 
-      {/* Info Bar */}
+      {/* Info bar */}
       <View style={styles.infoBar}>
-        <View style={styles.infoItem}>
-          <Text style={styles.infoIcon}>📍</Text>
-          <Text style={styles.infoText}>{tournee.zone_gouvernorat}</Text>
-        </View>
-        <View style={styles.infoDivider} />
         <View style={styles.infoItem}>
           <Text style={styles.infoIcon}>📅</Text>
           <Text style={styles.infoText}>
-            {new Date(tournee.date_prevue).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })}
+            {tournee?.date_prevue
+              ? new Date(tournee.date_prevue).toLocaleDateString('fr-FR', {
+                  weekday: 'short', day: 'numeric', month: 'short',
+                })
+              : '—'}
           </Text>
         </View>
+        <View style={styles.infoDivider} />
+        <View style={styles.infoItem}>
+          <Text style={styles.infoIcon}>📍</Text>
+          <Text style={styles.infoText}>{tournee?.zone_gouvernorat || '—'}</Text>
+        </View>
+        {estEnCours && gpsStatus === 'active' && (
+          <>
+            <View style={styles.infoDivider} />
+            <View style={styles.infoItem}>
+              <Text style={styles.infoIcon}>🛰</Text>
+              <Text style={[styles.infoText, { color: '#4ade80' }]}>Suivi actif</Text>
+            </View>
+          </>
+        )}
       </View>
 
       {/* Summary */}
@@ -548,13 +640,27 @@ export default function LivraisonDetailScreen() {
       {(estPlanifie || estEnCours) && (
         <View style={styles.tourneeActionBar}>
           {estPlanifie && (
-            <TouchableOpacity style={[styles.tourneeActionBtn, { backgroundColor: COLORS.primary }]} onPress={() => changerStatutTournee('en_cours')}>
-              <Text style={styles.tourneeActionBtnText}>▶ Démarrer la tournée</Text>
+            <TouchableOpacity
+              style={[styles.tourneeActionBtn, { backgroundColor: COLORS.primary }, actionLoading && { opacity: 0.6 }]}
+              onPress={() => changerStatutTournee('en_cours')}
+              disabled={actionLoading}
+            >
+              {actionLoading
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={styles.tourneeActionBtnText}>▶ Démarrer la tournée</Text>
+              }
             </TouchableOpacity>
           )}
           {estEnCours && (
-            <TouchableOpacity style={[styles.tourneeActionBtn, { backgroundColor: COLORS.green }]} onPress={() => changerStatutTournee('terminee')}>
-              <Text style={styles.tourneeActionBtnText}>✓ Terminer la tournée</Text>
+            <TouchableOpacity
+              style={[styles.tourneeActionBtn, { backgroundColor: COLORS.green }, actionLoading && { opacity: 0.6 }]}
+              onPress={() => changerStatutTournee('terminee')}
+              disabled={actionLoading}
+            >
+              {actionLoading
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={styles.tourneeActionBtnText}>✓ Terminer la tournée</Text>
+              }
             </TouchableOpacity>
           )}
         </View>
@@ -564,7 +670,14 @@ export default function LivraisonDetailScreen() {
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => { setRefreshing(true); load(); }}
+            tintColor={COLORS.primary}
+            colors={[COLORS.primary]}
+          />
+        }
       >
         {etapes.length === 0 ? (
           <View style={styles.empty}>
@@ -606,108 +719,106 @@ export default function LivraisonDetailScreen() {
   );
 }
 
-// Styles (inchangés sauf ajout des styles pour le modal preuve)
+// ─────────────────────────────────────────
+// STYLES
+// ─────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.bg },
-
+  container:        { flex: 1, backgroundColor: COLORS.bg },
   loadingContainer: { flex: 1, backgroundColor: COLORS.bg, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { marginTop: 12, color: COLORS.textMuted, fontSize: 14 },
+  loadingText:      { marginTop: 12, color: COLORS.textMuted, fontSize: 14 },
 
-  header: { backgroundColor: COLORS.primary, paddingTop: 52, paddingBottom: 16, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  backIconBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.12)', justifyContent: 'center', alignItems: 'center' },
-  backIcon: { color: '#fff', fontSize: 24, fontWeight: '300' },
-  headerCenter: { flex: 1, alignItems: 'center' },
-  headerRef: { color: '#fff', fontSize: 18, fontWeight: '800' },
-  headerBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: RADIUS.full },
-  headerBadgeDot: { width: 8, height: 8, borderRadius: 4 },
-  headerBadgeText: { fontSize: 12, fontWeight: '700' },
+  header:        { backgroundColor: COLORS.primary, paddingTop: 52, paddingBottom: 16, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  backIconBtn:   { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.12)', justifyContent: 'center', alignItems: 'center' },
+  backIcon:      { color: '#fff', fontSize: 24, fontWeight: '300' },
+  headerCenter:  { flex: 1, alignItems: 'center' },
+  headerRef:     { color: '#fff', fontSize: 18, fontWeight: '800' },
+  headerBadge:   { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
+  headerBadgeDot:{ width: 8, height: 8, borderRadius: 4 },
+  headerBadgeText:{ fontSize: 12, fontWeight: '700' },
 
-  infoBar: { backgroundColor: COLORS.primary, paddingVertical: 12, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center' },
-  infoItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  infoIcon: { fontSize: 14 },
-  infoText: { color: 'rgba(255,255,255,0.85)', fontSize: 13 },
-  infoDivider: { width: 1, height: 16, backgroundColor: 'rgba(255,255,255,0.3)', marginHorizontal: 12 },
+  // ✅ Indicateur GPS dans le header
+  gpsIndicator: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  gpsDot:       { width: 8, height: 8, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.3)' },
+  gpsDotActive: { backgroundColor: '#4ade80' },
+  gpsDotError:  { backgroundColor: '#f87171' },
+  gpsLabel:     { color: 'rgba(255,255,255,0.7)', fontSize: 10, fontWeight: '700' },
 
-  summaryBar: { backgroundColor: COLORS.white, flexDirection: 'row', padding: 16, borderBottomWidth: 1, borderColor: COLORS.border },
-  summaryItem: { flex: 1, alignItems: 'center' },
-  summaryValue: { fontSize: 20, fontWeight: '800' },
-  summaryLabel: { fontSize: 10, color: COLORS.textMuted, fontWeight: '600', textTransform: 'uppercase' },
+  infoBar:    { backgroundColor: COLORS.primary, paddingVertical: 12, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center' },
+  infoItem:   { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  infoIcon:   { fontSize: 14 },
+  infoText:   { color: 'rgba(255,255,255,0.85)', fontSize: 13 },
+  infoDivider:{ width: 1, height: 16, backgroundColor: 'rgba(255,255,255,0.3)', marginHorizontal: 12 },
+
+  summaryBar:     { backgroundColor: COLORS.white, flexDirection: 'row', padding: 16, borderBottomWidth: 1, borderColor: COLORS.border },
+  summaryItem:    { flex: 1, alignItems: 'center' },
+  summaryValue:   { fontSize: 20, fontWeight: '800' },
+  summaryLabel:   { fontSize: 10, color: COLORS.textMuted, fontWeight: '600', textTransform: 'uppercase' },
   summaryDivider: { width: 1, height: 32, backgroundColor: COLORS.border },
 
-  tourneeActionBar: { padding: 12, backgroundColor: COLORS.white, borderBottomWidth: 1, borderColor: COLORS.border },
-  tourneeActionBtn: { paddingVertical: 14, borderRadius: RADIUS.md, alignItems: 'center' },
-  tourneeActionBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  tourneeActionBar:    { padding: 12, backgroundColor: COLORS.white, borderBottomWidth: 1, borderColor: COLORS.border },
+  tourneeActionBtn:    { paddingVertical: 14, borderRadius: RADIUS.md, alignItems: 'center' },
+  tourneeActionBtnText:{ color: '#fff', fontWeight: '700', fontSize: 16 },
 
-  scroll: { flex: 1 },
+  scroll:        { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 80 },
 
-  etapeCard: {
-    backgroundColor: COLORS.white,
-    borderRadius: RADIUS.lg,
-    marginBottom: 12,
-    flexDirection: 'row',
-    overflow: 'hidden',
-    ...SHADOW.card,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  etapeCardLivree: { borderColor: COLORS.green + '40' },
-  etapeCardRetournee: { borderColor: COLORS.red + '40' },
-  etapeOrder: { width: 48, justifyContent: 'center', alignItems: 'center' },
-  etapeOrderText: { color: '#fff', fontSize: 16, fontWeight: '800' },
-  etapeBody: { flex: 1, padding: 14 },
-  etapeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  etapeRef: { fontFamily: 'monospace', fontWeight: '700', color: COLORS.primary },
-  etapeMontant: { fontSize: 13, fontWeight: '700', color: COLORS.amber, marginBottom: 8 },
-  clientRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 10 },
-  clientName: { fontSize: 15, fontWeight: '600' },
-  clientAddr: { fontSize: 12, color: COLORS.textMuted, lineHeight: 16 },
-  phoneBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.green + '20', justifyContent: 'center', alignItems: 'center' },
-  phoneBtnIcon: { fontSize: 20 },
-  navBtn: { backgroundColor: COLORS.primaryBg, paddingVertical: 10, borderRadius: RADIUS.md, alignItems: 'center', marginBottom: 12 },
-  navBtnText: { color: COLORS.primary, fontWeight: '700' },
-  actionRow: { flexDirection: 'row', gap: 10 },
-  btnLivrer: { flex: 1, backgroundColor: COLORS.green, paddingVertical: 12, borderRadius: RADIUS.md, alignItems: 'center' },
-  btnLivrerText: { color: '#fff', fontWeight: '700' },
-  btnRetour: { flex: 1, backgroundColor: COLORS.redLight || '#fee2e2', paddingVertical: 12, borderRadius: RADIUS.md, alignItems: 'center', borderWidth: 1, borderColor: COLORS.red + '30' },
-  btnRetourText: { color: COLORS.red, fontWeight: '700' },
+  etapeCard:         { backgroundColor: COLORS.white, borderRadius: RADIUS.lg, marginBottom: 12, flexDirection: 'row', overflow: 'hidden', ...SHADOW.card, borderWidth: 1, borderColor: COLORS.border },
+  etapeCardLivree:   { borderColor: COLORS.green + '40' },
+  etapeCardRetournee:{ borderColor: COLORS.red + '40' },
+  etapeOrder:        { width: 48, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center' },
+  etapeOrderText:    { color: '#fff', fontSize: 16, fontWeight: '800' },
+  etapeBody:         { flex: 1, padding: 14 },
+  etapeHeader:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  etapeRef:          { fontFamily: 'monospace', fontWeight: '700', color: COLORS.primary },
+  etapeMontant:      { fontSize: 13, fontWeight: '700', color: COLORS.amber, marginBottom: 8 },
+  clientRow:         { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 10 },
+  clientName:        { fontSize: 15, fontWeight: '600' },
+  clientAddr:        { fontSize: 12, color: COLORS.textMuted, lineHeight: 16 },
+  phoneBtn:          { width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.green + '20', justifyContent: 'center', alignItems: 'center' },
+  phoneBtnIcon:      { fontSize: 20 },
+  navBtn:            { backgroundColor: COLORS.primaryBg, paddingVertical: 10, borderRadius: RADIUS.md, alignItems: 'center', marginBottom: 12 },
+  navBtnText:        { color: COLORS.primary, fontWeight: '700' },
+  actionRow:         { flexDirection: 'row', gap: 10 },
+  btnLivrer:         { flex: 1, backgroundColor: COLORS.green, paddingVertical: 12, borderRadius: RADIUS.md, alignItems: 'center' },
+  btnLivrerText:     { color: '#fff', fontWeight: '700' },
+  btnRetour:         { flex: 1, backgroundColor: '#fee2e2', paddingVertical: 12, borderRadius: RADIUS.md, alignItems: 'center', borderWidth: 1, borderColor: COLORS.red + '30' },
+  btnRetourText:     { color: COLORS.red, fontWeight: '700' },
 
-  // Modal commun
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
-  modalCard: { backgroundColor: COLORS.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 },
-  modalTitle: { fontSize: 18, fontWeight: '800', marginBottom: 4 },
-  modalSub: { fontSize: 13, color: COLORS.textMuted, marginBottom: 16 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  modalCloseBtn: { padding: 8 },
-  modalCloseText: { fontSize: 18, color: '#94a3b8' },
-  modalSectionLabel: { fontSize: 12, fontWeight: '700', color: COLORS.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 },
-  motifBtn: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: RADIUS.md, borderWidth: 1.5, borderColor: COLORS.border, marginBottom: 8 },
-  motifBtnActive: { borderColor: COLORS.primary, backgroundColor: COLORS.primary + '08' },
-  motifRadio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: COLORS.border },
-  motifRadioActive: { borderColor: COLORS.primary },
-  motifLabel: { fontSize: 14, color: COLORS.textSecondary },
-  motifLabelActive: { color: COLORS.primary, fontWeight: '700' },
-  commentInput: { borderWidth: 1.5, borderColor: COLORS.border, borderRadius: RADIUS.md, padding: 12, minHeight: 80, textAlignVertical: 'top', fontSize: 14 },
+  statusBadge:     { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12 },
+  statusBadgeText: { fontSize: 11, fontWeight: '700' },
 
-  photoPickBtn: { backgroundColor: COLORS.primaryBg, borderRadius: RADIUS.lg, paddingVertical: 32, alignItems: 'center', borderWidth: 2, borderColor: COLORS.primary + '30', borderStyle: 'dashed', marginBottom: 12 },
-  photoPickIcon: { fontSize: 48, marginBottom: 8 },
-  photoPickText: { color: COLORS.primary, fontWeight: '700', fontSize: 15 },
-  photoPreview: { width: '100%', height: 220, borderRadius: RADIUS.lg },
-  photoRetake: { alignItems: 'center', marginBottom: 12 },
-  photoRetakeText: { color: COLORS.primary, fontWeight: '600' },
+  modalOverlay:       { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
+  modalCard:          { backgroundColor: COLORS.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 },
+  modalTitle:         { fontSize: 18, fontWeight: '800', marginBottom: 4 },
+  modalSub:           { fontSize: 13, color: COLORS.textMuted, marginBottom: 16 },
+  modalHeader:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  modalCloseBtn:      { padding: 8 },
+  modalCloseText:     { fontSize: 18, color: '#94a3b8' },
+  modalSectionLabel:  { fontSize: 12, fontWeight: '700', color: COLORS.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 },
+  motifBtn:           { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: RADIUS.md, borderWidth: 1.5, borderColor: COLORS.border, marginBottom: 8 },
+  motifBtnActive:     { borderColor: COLORS.primary, backgroundColor: COLORS.primary + '08' },
+  motifRadio:         { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: COLORS.border },
+  motifRadioActive:   { borderColor: COLORS.primary },
+  motifLabel:         { fontSize: 14, color: COLORS.textSecondary },
+  motifLabelActive:   { color: COLORS.primary, fontWeight: '700' },
+  commentInput:       { borderWidth: 1.5, borderColor: COLORS.border, borderRadius: RADIUS.md, padding: 12, minHeight: 80, textAlignVertical: 'top', fontSize: 14 },
 
-  modalFooter: { flexDirection: 'row', gap: 12, marginTop: 20 },
-  btnCancel: { flex: 1, paddingVertical: 14, borderRadius: RADIUS.md, borderWidth: 1.5, borderColor: COLORS.border, alignItems: 'center' },
-  btnCancelText: { color: COLORS.textMuted, fontWeight: '600' },
-  btnConfirm: { flex: 1, backgroundColor: COLORS.green, paddingVertical: 14, borderRadius: RADIUS.md, alignItems: 'center' },
-  btnConfirmText: { color: '#fff', fontWeight: '700' },
-  btnConfirmRetour: { flex: 1, backgroundColor: COLORS.red, paddingVertical: 14, borderRadius: RADIUS.md, alignItems: 'center' },
-  btnConfirmRetourText: { color: '#fff', fontWeight: '700' },
+  photoPickBtn:   { backgroundColor: COLORS.primaryBg, borderRadius: RADIUS.lg, paddingVertical: 32, alignItems: 'center', borderWidth: 2, borderColor: COLORS.primary + '30', borderStyle: 'dashed', marginBottom: 12 },
+  photoPickIcon:  { fontSize: 48, marginBottom: 8 },
+  photoPickText:  { color: COLORS.primary, fontWeight: '700', fontSize: 15 },
+  photoPreview:   { width: '100%', height: 220, borderRadius: RADIUS.lg },
+  photoRetake:    { alignItems: 'center', marginBottom: 12 },
+  photoRetakeText:{ color: COLORS.primary, fontWeight: '600' },
 
-  empty: { alignItems: 'center', marginTop: 80 },
-  emptyIcon: { fontSize: 48, marginBottom: 12 },
+  modalFooter:         { flexDirection: 'row', gap: 12, marginTop: 20 },
+  btnCancel:           { flex: 1, paddingVertical: 14, borderRadius: RADIUS.md, borderWidth: 1.5, borderColor: COLORS.border, alignItems: 'center' },
+  btnCancelText:       { color: COLORS.textMuted, fontWeight: '600' },
+  btnConfirm:          { flex: 1, backgroundColor: COLORS.green, paddingVertical: 14, borderRadius: RADIUS.md, alignItems: 'center' },
+  btnConfirmText:      { color: '#fff', fontWeight: '700' },
+  btnConfirmRetour:    { flex: 1, backgroundColor: COLORS.red, paddingVertical: 14, borderRadius: RADIUS.md, alignItems: 'center' },
+  btnConfirmRetourText:{ color: '#fff', fontWeight: '700' },
+
+  empty:      { alignItems: 'center', marginTop: 80 },
+  emptyIcon:  { fontSize: 48, marginBottom: 12 },
   emptyTitle: { fontSize: 18, fontWeight: '700', color: COLORS.textPrimary },
-
-  // Autres styles existants...
-  sectionLabel: { fontSize: 12, fontWeight: '600', color: COLORS.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 },
 });

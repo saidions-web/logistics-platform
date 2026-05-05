@@ -102,22 +102,14 @@ class TourneeListCreateView(APIView):
     def post(self, request):
         entreprise = get_entreprise_or_403(request.user)
         if not entreprise:
-            return Response(
-                {'detail': 'Accès réservé aux entreprises.'},
-                status=403
-            )
-        serializer = TourneeCreateSerializer(data=request.data)
+            return Response({'detail': 'Accès réservé aux entreprises.'}, status=403)
+
+        serializer = TourneeCreateSerializer(data=request.data, context={'entreprise': entreprise})
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)
 
-        livreur = serializer.validated_data.get('livreur')
-        if livreur and livreur.entreprise != entreprise:
-            return Response(
-                {'detail': 'Ce livreur n\'appartient pas à votre entreprise.'},
-                status=400
-            )
-
-        tournee = serializer.save(entreprise=entreprise)
+        tournee = serializer.save()
+        
         return Response(TourneeSerializer(tournee).data, status=201)
 
 
@@ -219,35 +211,33 @@ class TourneeDetailView(APIView):
                 tournee.livreur.save()
 
         return Response(TourneeSerializer(tournee).data)
+
     def delete(self, request, pk):
-        """Supprimer une tournée (réservé à l'entreprise)"""
         entreprise = get_entreprise_or_403(request.user)
         if not entreprise:
-            return Response(
-                {'detail': 'Accès réservé aux entreprises.'},
-                status=403
-            )
+            return Response({'detail': 'Accès réservé aux entreprises.'}, status=403)
 
         tournee = get_object_or_404(Tournee, pk=pk, entreprise=entreprise)
 
-        # Sécurité forte
         if tournee.statut in [StatutTournee.EN_COURS, StatutTournee.TERMINEE]:
             return Response({
                 'detail': 'Impossible de supprimer une tournée en cours ou terminée.'
             }, status=400)
 
-        # Optionnel : avertissement si la tournée contient des commandes
-        if tournee.affectations.exists():
-            # Tu peux choisir de bloquer ou d'autoriser
-            # Pour l'instant on autorise mais avec un message clair
-            pass
+        with transaction.atomic():
+            # 🔥 update en masse
+            Commande.objects.filter(
+                affectation__tournee=tournee
+            ).update(statut=StatutCommande.EN_ATTENTE)
 
-        tournee.delete()
+            # supprimer les affectations
+            tournee.affectations.all().delete()
+
+            tournee.delete()
 
         return Response({
             'detail': f'Tournée {tournee.reference} supprimée avec succès.'
         }, status=204)
-
 # ─────────────────────────────────────────
 # US-18 — Affectation automatique
 # ─────────────────────────────────────────

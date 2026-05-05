@@ -1,21 +1,22 @@
 /**
- * SuiviGPS.jsx — Suivi GPS temps réel des livreurs
+ * frontend/src/pages/entreprise/SuiviGPS.jsx — VERSION CORRIGÉE
  *
- * Améliorations :
- *  ✅ Positions chargées depuis /api/entreprise/livreurs/positions/
- *  ✅ Rafraîchissement auto 15s (au lieu de 30s)
- *  ✅ Carte OpenStreetMap centrée sur le livreur sélectionné
- *  ✅ Marqueurs de tous les livreurs GPS actifs affichés via iFrame OSM
- *  ✅ Indicateurs En ligne / Hors ligne (< 2 min = en ligne)
- *  ✅ Lien "Voir sur la carte" pour chaque livreur
+ * CORRECTIONS :
+ *  1. isOnline() : gère correctement derniere_maj null/undefined
+ *  2. EntrepriseLivreursPositionsView renvoie derniere_maj (isostring),
+ *     pas derniere_position — le frontend utilise déjà la bonne clé.
+ *  3. Rafraîchissement réduit à 10s (était 15s) pour correspondre à
+ *     l'intervalle d'envoi mobile (15s) + latence réseau.
+ *  4. Affichage "En ligne" plus précis : seuil 3 min au lieu de 2 min
+ *     pour tolérer les retards réseau mobile.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { MapPin, RefreshCw, Users, Truck, Phone, Route, Navigation } from 'lucide-react'
 import { entrepriseApi } from '../../services/api'
 
-const REFRESH_INTERVAL_MS = 15_000  // 15 secondes
-const ONLINE_THRESHOLD_MS = 2 * 60 * 1000  // 2 minutes
+const REFRESH_INTERVAL_MS = 10_000            // ✅ 10s au lieu de 15s
+const ONLINE_THRESHOLD_MS = 3 * 60 * 1000    // ✅ 3 min au lieu de 2 min (tolérance réseau)
 
 const STATUT_BADGE = {
   disponible: 'badge-success',
@@ -30,14 +31,37 @@ const STATUT_LABEL = {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * ✅ FIX : Vérifie si le livreur est "en ligne" (position récente).
+ * Gère les cas null/undefined/string vide pour derniere_maj.
+ */
 function isOnline(livreur) {
-  if (!livreur.latitude || !livreur.derniere_maj) return false
-  return (new Date() - new Date(livreur.derniere_maj)) < ONLINE_THRESHOLD_MS
+  if (!livreur.latitude || !livreur.longitude) return false
+  if (!livreur.derniere_maj) return false
+  const lastSeen = new Date(livreur.derniere_maj)
+  if (isNaN(lastSeen.getTime())) return false        // ✅ Date invalide = offline
+  return (Date.now() - lastSeen.getTime()) < ONLINE_THRESHOLD_MS
 }
 
 function formatTime(isoString) {
   if (!isoString) return null
-  return new Date(isoString).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+  const d = new Date(isoString)
+  if (isNaN(d.getTime())) return null
+  return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+}
+
+/**
+ * ✅ FIX : Affiche l'ancienneté de la position de façon lisible.
+ * Ex: "il y a 45s", "il y a 2 min"
+ */
+function formatAge(isoString) {
+  if (!isoString) return null
+  const d = new Date(isoString)
+  if (isNaN(d.getTime())) return null
+  const diffSec = Math.floor((Date.now() - d.getTime()) / 1000)
+  if (diffSec < 60)  return `il y a ${diffSec}s`
+  if (diffSec < 3600) return `il y a ${Math.floor(diffSec / 60)} min`
+  return `il y a ${Math.floor(diffSec / 3600)}h`
 }
 
 // ── Carte OpenStreetMap ──────────────────────────────────────────────────────
@@ -46,15 +70,6 @@ function MapView({ livreurs, selected }) {
   const livreur = selected ? livreurs.find(l => l.id === selected) : null
   const livreursAvecGPS = livreurs.filter(l => l.latitude && l.longitude)
 
-  /**
-   * Construit l'URL iFrame OSM.
-   * Si un livreur est sélectionné et a une position → centrer sur lui.
-   * Sinon → vue Tunisie + tous les marqueurs.
-   *
-   * Note : OSM iFrame ne supporte qu'un seul marqueur natif.
-   * Pour afficher plusieurs marqueurs il faudrait Leaflet.js.
-   * On utilise ici un fallback visuel (badges en overlay).
-   */
   const getMapSrc = () => {
     if (livreur?.latitude && livreur?.longitude) {
       const lat = parseFloat(livreur.latitude)
@@ -67,7 +82,6 @@ function MapView({ livreurs, selected }) {
       )
     }
 
-    // Si plusieurs livreurs GPS → ajuster le bbox pour tous les inclure
     if (livreursAvecGPS.length > 0) {
       const lats = livreursAvecGPS.map(l => parseFloat(l.latitude))
       const lngs = livreursAvecGPS.map(l => parseFloat(l.longitude))
@@ -81,7 +95,6 @@ function MapView({ livreurs, selected }) {
       )
     }
 
-    // Vue Tunisie entière par défaut
     return 'https://www.openstreetmap.org/export/embed.html?bbox=7.5,30.0,11.5,37.5&layer=mapnik'
   }
 
@@ -95,7 +108,7 @@ function MapView({ livreurs, selected }) {
   return (
     <div style={{ position: 'relative', flex: 1, background: '#e8f0f8', borderRadius: 12, overflow: 'hidden', minHeight: 420 }}>
       <iframe
-        key={selected || 'all'}   /* force re-render quand on change de livreur */
+        key={selected || 'all'}
         title="carte-livreurs"
         src={getMapSrc()}
         style={{ width: '100%', height: '100%', border: 'none', minHeight: 420 }}
@@ -103,7 +116,6 @@ function MapView({ livreurs, selected }) {
         referrerPolicy="no-referrer"
       />
 
-      {/* ── Badges livreurs en bas ── */}
       {livreursAvecGPS.length > 0 && (
         <div style={{
           position: 'absolute', bottom: 12, left: 12, right: 12,
@@ -131,8 +143,11 @@ function MapView({ livreurs, selected }) {
                 }} />
                 <MapPin size={10} />
                 {l.nom_complet}
-                {l.tournee_reference && (
-                  <span style={{ opacity: 0.75, fontSize: 10 }}>· {l.tournee_reference}</span>
+                {/* ✅ Affichage de l'âge de la position */}
+                {l.derniere_maj && (
+                  <span style={{ opacity: 0.6, fontSize: 10 }}>
+                    {formatAge(l.derniere_maj)}
+                  </span>
                 )}
               </div>
             )
@@ -140,7 +155,6 @@ function MapView({ livreurs, selected }) {
         </div>
       )}
 
-      {/* ── Message si aucun GPS ── */}
       {livreursAvecGPS.length === 0 && (
         <div style={{
           position: 'absolute', inset: 0,
@@ -158,7 +172,6 @@ function MapView({ livreurs, selected }) {
         </div>
       )}
 
-      {/* ── Bouton "Ouvrir dans OSM" si livreur sélectionné ── */}
       {livreur?.latitude && (
         <button
           onClick={() => openInOSM(livreur)}
@@ -190,7 +203,7 @@ function MapView({ livreurs, selected }) {
 
 function LivreurCard({ livreur, selected, onClick }) {
   const online = isOnline(livreur)
-  const hasGPS = Boolean(livreur.latitude)
+  const hasGPS = Boolean(livreur.latitude && livreur.longitude)
 
   return (
     <div
@@ -202,7 +215,6 @@ function LivreurCard({ livreur, selected, onClick }) {
         marginBottom: 8, transition: 'all 0.18s',
       }}
     >
-      {/* Ligne 1 — nom + badge statut */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
         <div style={{ fontWeight: 700, fontSize: 14 }}>{livreur.nom_complet}</div>
         <span className={`badge ${STATUT_BADGE[livreur.statut] || 'badge-warning'}`} style={{ fontSize: 10 }}>
@@ -210,7 +222,6 @@ function LivreurCard({ livreur, selected, onClick }) {
         </span>
       </div>
 
-      {/* Infos secondaires */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {livreur.telephone && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
@@ -234,7 +245,7 @@ function LivreurCard({ livreur, selected, onClick }) {
           </div>
         )}
 
-        {/* Indicateur GPS */}
+        {/* ✅ Indicateur GPS avec âge de la position */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, marginTop: 2 }}>
           <div style={{
             width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
@@ -248,17 +259,12 @@ function LivreurCard({ livreur, selected, onClick }) {
             {!hasGPS
               ? 'Aucune position GPS'
               : online
-                ? 'GPS en ligne'
-                : 'GPS hors ligne (ancien)'}
+                ? `GPS actif · ${formatAge(livreur.derniere_maj) || ''}`
+                : 'GPS inactif'
+            }
           </span>
-          {hasGPS && livreur.derniere_maj && (
-            <span style={{ color: 'var(--text-muted)', marginLeft: 2 }}>
-              — {formatTime(livreur.derniere_maj)}
-            </span>
-          )}
         </div>
 
-        {/* Coordonnées */}
         {hasGPS && (
           <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'monospace' }}>
             {parseFloat(livreur.latitude).toFixed(5)}, {parseFloat(livreur.longitude).toFixed(5)}
@@ -279,15 +285,13 @@ export default function SuiviGPS() {
   const [filtreStatut, setFiltreStatut] = useState('')
   const intervalRef = useRef(null)
 
-  // ── Chargement ─────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
     try {
-      // Utilise le nouvel endpoint dédié au suivi GPS
       const res = await entrepriseApi.livreursPositions()
       setLivreurs(res.data)
       setLastUpdate(new Date())
     } catch {
-      // En cas d'erreur, conserver les données précédentes
+      // Conserver les données précédentes en cas d'erreur
     } finally {
       setLoading(false)
     }
@@ -299,17 +303,15 @@ export default function SuiviGPS() {
     return () => clearInterval(intervalRef.current)
   }, [load])
 
-  // ── Filtres & KPI ──────────────────────────────────────────────────────────
   const enTournee   = livreurs.filter(l => l.statut === 'en_tournee')
   const disponibles = livreurs.filter(l => l.statut === 'disponible')
-  const avecGPS     = livreurs.filter(l => l.latitude)
+  const avecGPS     = livreurs.filter(l => l.latitude && l.longitude)
   const enLigne     = livreurs.filter(l => isOnline(l))
 
   const livreursFiltres = filtreStatut
     ? livreurs.filter(l => l.statut === filtreStatut)
     : livreurs
 
-  // ── Rendu ──────────────────────────────────────────────────────────────────
   return (
     <div className="animate-fade-up" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
 
@@ -320,7 +322,7 @@ export default function SuiviGPS() {
             Suivi GPS
           </h2>
           <p style={{ color: 'var(--text-muted)', fontSize: 14, marginTop: 4 }}>
-            Positions en temps réel · Rafraîchissement automatique {REFRESH_INTERVAL_MS / 1000}s
+            Positions en temps réel · Rafraîchissement {REFRESH_INTERVAL_MS / 1000}s
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -342,9 +344,9 @@ export default function SuiviGPS() {
       {/* KPI */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
         {[
-          { label: 'En tournée',     value: enTournee.length,   color: '#3b82f6', icon: Truck  },
-          { label: 'Disponibles',    value: disponibles.length, color: '#16a34a', icon: Users  },
-          { label: 'GPS enregistré', value: avecGPS.length,     color: '#8b5cf6', icon: MapPin },
+          { label: 'En tournée',     value: enTournee.length,   color: '#3b82f6', icon: Truck      },
+          { label: 'Disponibles',    value: disponibles.length, color: '#16a34a', icon: Users      },
+          { label: 'GPS enregistré', value: avecGPS.length,     color: '#8b5cf6', icon: MapPin     },
           { label: 'GPS en ligne',   value: enLigne.length,     color: '#10b981', icon: Navigation },
         ].map(({ label, value, color, icon: Icon }) => (
           <div key={label} className="card" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>

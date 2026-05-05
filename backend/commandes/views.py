@@ -172,11 +172,10 @@ class VendeurRapportView(APIView):
         )['total'] or 0
 
         montant_perdu = commandes.filter(
-            statut__in=['retournee', 'annulee']
+            statut='retournee'                    # uniquement les commandes retournées
         ).aggregate(
-            total=Sum('montant_a_collecter')
+            total=Sum('prix_livraison')           # ← CHANGEMENT ICI
         )['total'] or 0
-
         # ── Évolution mensuelle sur 6 mois ───────────────────────
         aujourd_hui = timezone.now()
         evolution_mensuelle = []

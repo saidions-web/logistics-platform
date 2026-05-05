@@ -25,16 +25,12 @@ urlpatterns = [
     path('api/auth/', include('accounts.urls')),
     path('api/commandes/', include('commandes.urls')),  
     path('api/tarifs/', include('tarif.urls')),
-    path('api/recommandation/',  include('recommandation.urls')),
-    path('api/entreprise/',  include('entreprise.urls')),
-path('api/entreprise/', include('tournees.urls')),   # Important : même préfixe
-    path("api/notifications/", include("notifications.urls")),  # ✅ ajouter
-path('api/retours/', include('retours.urls')),
-path('api/notifications-client/', include('notifications_client.urls')),
-
-
-
-
+    path('api/recommandation/', include('recommandation.urls')),
+    path('api/entreprise/', include('entreprise.urls')),
+    path('api/tournees/', include('tournees.urls')),  # Préfixe unique pour tournees
+    path('api/notifications/', include('notifications.urls')),
+    path('api/retours/', include('retours.urls')),
+    path('api/notifications-client/', include('notifications_client.urls')),
 ]
 
 if settings.DEBUG:

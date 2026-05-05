@@ -95,6 +95,7 @@ export const retoursApi = {
 export const entrepriseApi = {
   dashboard: () => api.get('/entreprise/dashboard/'),
   rapport: () => api.get('/entreprise/rapport/'),
+  commandesEnAttente: () => api.get('/entreprise/commandes/?statut=en_attente'),
 
   commandes:     (params = {}) => api.get('/entreprise/commandes/', { params }),
   changerStatut: (id, data)    => api.patch(`/entreprise/commandes/${id}/statut/`, data),
@@ -110,25 +111,36 @@ export const entrepriseApi = {
   updatePosition: (livreurId, data) =>
     api.post(`/entreprise/livreurs/${livreurId}/position/`, data),
 
-  tournees:        (params = {}) => api.get('/entreprise/tournees/', { params }),
-  getTournee:      (id)          => api.get(`/entreprise/tournees/${id}/`),
-  createTournee:   (data)        => api.post('/entreprise/tournees/', data),
-  updateTournee:   (id, data)    => api.patch(`/entreprise/tournees/${id}/`, data),
-  deleteTournee:   (id)          => api.delete(`/entreprise/tournees/${id}/`),
 
-  getTourneeEtapes:  (tourneeId)        => api.get(`/entreprise/tournees/${tourneeId}/commandes/`),
-  ajouterCommande:   (tourneeId, data)  => api.post(`/entreprise/tournees/${tourneeId}/commandes/`, data),
-  retirerCommande:   (tourneeId, cmdId) =>
-    api.delete(`/entreprise/tournees/${tourneeId}/commandes/`, { data: { commande_id: cmdId } }),
-
-  optimiserTournee:  (tourneeId)        => api.post(`/entreprise/tournees/${tourneeId}/optimiser/`),
-  reordonnerTournee: (tourneeId, ordre) =>
-    api.patch(`/entreprise/tournees/${tourneeId}/reordonner/`, { ordre }),
 
   affectationAuto: () => api.post('/entreprise/affectation/auto/'),
   getMesTournees:  () => api.get('/entreprise/livreur/tournees/'),
 };
+// ====================== TOURNEES ======================
+export const tourneesApi = {
+  list:   (params = {}) => api.get('/tournees/', { params }),
+  get:    (id)          => api.get(`/tournees/${id}/`),
+  create: (data)        => api.post('/tournees/', data),
+  update: (id, data)    => api.patch(`/tournees/${id}/`, data),
+  delete: (id)          => api.delete(`/tournees/${id}/`),
 
+  getEtapes: (tourneeId) =>
+    api.get(`/tournees/${tourneeId}/commandes/`),
+
+  ajouterCommande: (tourneeId, data) =>
+    api.post(`/tournees/${tourneeId}/commandes/`, data),
+
+  retirerCommande: (tourneeId, cmdId) =>
+    api.delete(`/tournees/${tourneeId}/commandes/`, {
+      data: { commande_id: cmdId }
+    }),
+
+  optimiser: (tourneeId) =>
+    api.post(`/tournees/${tourneeId}/optimiser/`),
+
+  reordonner: (tourneeId, ordre) =>
+    api.patch(`/tournees/${tourneeId}/reordonner/`, { ordre }),
+};
 // ====================== NOTIFICATIONS ======================
 export const notificationApi = {
   list:        () => api.get('/notifications/'),

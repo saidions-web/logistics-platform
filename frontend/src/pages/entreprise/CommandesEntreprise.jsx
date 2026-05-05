@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { toast } from 'react-toastify';
 import { Package, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, X, MapPin, Phone, Box, TrendingUp, Calendar, Tag } from 'lucide-react'
 import { entrepriseApi } from '../../services/api'
 import RetourModal from './RetourModal'

@@ -1,5 +1,6 @@
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
+import config from '../config';
 
 // Callback injecté depuis l'app pour gérer la déconnexion
 let onUnauthorized = null;
@@ -8,8 +9,8 @@ export const setUnauthorizedHandler = (handler) => {
 };
 
 const api = axios.create({
-  baseURL: 'http://192.168.1.7:8000/api',
-  timeout: 10000,
+  baseURL: config.apiUrl,
+  timeout: config.timeout,
 });
 
 api.interceptors.request.use(async (config) => {
@@ -55,7 +56,7 @@ api.interceptors.response.use(
         if (!refresh) throw new Error('No refresh token');
 
         const res = await axios.post(
-          'http://192.168.1.7:8000/api/auth/token/refresh/',
+          `${config.apiUrl}/auth/token/refresh/`,
           { refresh }
         );
 

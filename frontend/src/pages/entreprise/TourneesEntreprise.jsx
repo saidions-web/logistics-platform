@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Route, Plus, ChevronDown, ChevronUp,
          Trash2, ArrowUpDown, Zap, Package } from 'lucide-react'
-import { entrepriseApi } from '../../services/api'
+import { tourneesApi, entrepriseApi } from '../../services/api'
 
 const STATUT_BADGE = {
   planifiee: 'badge-warning',
@@ -16,79 +16,176 @@ const STATUT_LABEL = {
   annulee:   'Annulée',
 }
 
-// ── Modal création tournée ──────────────────────────────────────────────────
-function TourneeModal({ livreurs, onClose, onSuccess }) {
+// ── Modal création tournée avec sélection de commandes ─────────────────────
+// ── Modal création tournée avec sélection de commandes + filtrage livreurs ─────
+function TourneeModal({ livreurs, commandesEnAttente, onClose, onSuccess }) {
   const [form, setForm] = useState({
-    livreur: '', date_prevue: new Date().toISOString().split('T')[0],
-    heure_depart: '', zone_gouvernorat: '', notes: '',
-  })
-  const [loading, setLoading] = useState(false)
-  const [error, setError]     = useState('')
+    livreur: '',
+    date_prevue: new Date().toISOString().split('T')[0],
+    heure_depart: '',
+    zone_gouvernorat: '',
+    notes: '',
+    commande_ids: []
+  });
 
-  const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [filteredLivreurs, setFilteredLivreurs] = useState(livreurs);
+
+  // Filtrer les livreurs selon les gouvernorats des commandes sélectionnées
+  useEffect(() => {
+    if (form.commande_ids.length === 0) {
+      setFilteredLivreurs(livreurs);
+      return;
+    }
+
+    // Récupérer les gouvernorats des commandes sélectionnées
+    const selectedCommands = commandesEnAttente.filter(cmd => 
+      form.commande_ids.includes(cmd.id)
+    );
+
+    const requiredGouvernorats = [...new Set(selectedCommands.map(cmd => cmd.dest_gouvernorat))];
+
+    // Filtrer les livreurs qui couvrent AU MOINS un des gouvernorats requis
+    const filtered = livreurs.filter(livreur => {
+      if (!livreur.gouvernorats_couverts || livreur.gouvernorats_couverts.length === 0) {
+        return true; // Si pas de restriction, on le montre
+      }
+      return requiredGouvernorats.some(gov => 
+        livreur.gouvernorats_couverts.includes(gov)
+      );
+    });
+
+    setFilteredLivreurs(filtered);
+
+    // Si le livreur actuellement sélectionné ne couvre plus les zones, on le désélectionne
+    if (form.livreur && !filtered.some(l => l.id === parseInt(form.livreur))) {
+      setForm(prev => ({ ...prev, livreur: '' }));
+    }
+  }, [form.commande_ids, commandesEnAttente, livreurs]);
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setForm(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleCommandesChange = (e) => {
+    const selectedIds = Array.from(e.target.selectedOptions, option => parseInt(option.value));
+    setForm(prev => ({ ...prev, commande_ids: selectedIds }));
+  };
 
   const submit = async () => {
     if (!form.livreur || !form.date_prevue || !form.zone_gouvernorat) {
-      setError('Livreur, date et zone sont requis.')
-      return
+      setError('Livreur, date et zone principale sont obligatoires.');
+      return;
     }
-    setLoading(true); setError('')
+
+    setLoading(true);
+    setError('');
+
     try {
-      await entrepriseApi.createTournee({
+      await tourneesApi.create({
         ...form,
         livreur: parseInt(form.livreur),
-      })
-      onSuccess(); onClose()
+      });
+      onSuccess();
+      onClose();
     } catch (err) {
-      const d = err.response?.data
-      setError(Object.values(d || {}).flat().join(' ') || 'Erreur.')
-    } finally { setLoading(false) }
-  }
+      const d = err.response?.data || {};
+      setError(Object.values(d).flat().join(' ') || 'Erreur lors de la création.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 480, width: '95%' }} onClick={e => e.stopPropagation()}>
+      <div className="modal" style={{ maxWidth: 650, width: '95%' }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <h3>Nouvelle tournée</h3>
+          <h3>Nouvelle Tournée</h3>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
+
+        {/* Sélection des commandes */}
         <div className="form-group">
-          <label className="form-label">Livreur *</label>
-          <select className="form-select" value={form.livreur} onChange={set('livreur')}>
+          <label className="form-label">Commandes à affecter (optionnel)</label>
+          <select
+            multiple
+            name="commande_ids"
+            className="form-select"
+            value={form.commande_ids}
+            onChange={handleCommandesChange}
+            style={{ height: '180px' }}
+          >
+            {commandesEnAttente.map(cmd => (
+              <option key={cmd.id} value={cmd.id}>
+                {cmd.reference} — {cmd.dest_nom} {cmd.dest_prenom} • {cmd.dest_gouvernorat}
+              </option>
+            ))}
+          </select>
+          <small>Maintenez Ctrl (ou Cmd) pour sélectionner plusieurs</small>
+        </div>
+
+        {/* Liste des livreurs filtrée */}
+        <div className="form-group">
+          <label className="form-label">Livreur * 
+            {form.commande_ids.length > 0 && <span style={{color: '#666', fontSize: '12px'}}> (filtrés selon les zones)</span>}
+          </label>
+          <select 
+            name="livreur"
+            className="form-select" 
+            value={form.livreur} 
+            onChange={handleChange}
+          >
             <option value="">-- Choisir un livreur --</option>
-            {livreurs.map(l => (
-              <option key={l.id} value={l.id}>{l.nom_complet || `${l.prenom} ${l.nom}`}</option>
+            {filteredLivreurs.map(l => (
+              <option key={l.id} value={l.id}>
+                {l.nom_complet || `${l.prenom} ${l.nom}`}
+              </option>
             ))}
           </select>
         </div>
+
+        {/* Autres champs */}
         <div className="form-row">
           <div className="form-group">
             <label className="form-label">Date *</label>
-            <input className="form-input" type="date" value={form.date_prevue} onChange={set('date_prevue')} />
+            <input type="date" name="date_prevue" className="form-input" value={form.date_prevue} onChange={handleChange} />
           </div>
           <div className="form-group">
             <label className="form-label">Heure de départ</label>
-            <input className="form-input" type="time" value={form.heure_depart} onChange={set('heure_depart')} />
+            <input type="time" name="heure_depart" className="form-input" value={form.heure_depart} onChange={handleChange} />
           </div>
         </div>
+
         <div className="form-group">
           <label className="form-label">Zone principale *</label>
-          <input className="form-input" placeholder="Ex : Tunis, Sfax..." value={form.zone_gouvernorat} onChange={set('zone_gouvernorat')} />
+          <input 
+            type="text" 
+            name="zone_gouvernorat"
+            className="form-input" 
+            placeholder="Ex : Tunis, Sfax..." 
+            value={form.zone_gouvernorat} 
+            onChange={handleChange} 
+          />
         </div>
+
         <div className="form-group">
           <label className="form-label">Notes</label>
-          <textarea className="form-textarea" rows={2} value={form.notes} onChange={set('notes')} />
+          <textarea name="notes" className="form-textarea" rows={2} value={form.notes} onChange={handleChange} />
         </div>
+
         {error && <div className="alert alert-error">{error}</div>}
-        <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
           <button className="btn btn-secondary" onClick={onClose}>Annuler</button>
-          <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={submit} disabled={loading}>
+          <button className="btn btn-primary" style={{ flex: 1 }} onClick={submit} disabled={loading}>
             {loading ? <span className="spinner" /> : 'Créer la tournée'}
           </button>
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 // ── Carte tournée avec détail drag-and-drop ordre ──────────────────────────
@@ -103,7 +200,7 @@ function TourneeCard({ tournee, onRefresh }) {
     if (!open) return
     setLoading(true)
     try {
-      const res = await entrepriseApi.getTourneeEtapes(tournee.id)
+      const res = await tourneesApi.getEtapes(tournee.id)
       setEtapes(res.data)
     } catch { setEtapes([]) }
     finally { setLoading(false) }
@@ -112,70 +209,61 @@ function TourneeCard({ tournee, onRefresh }) {
   useEffect(() => { loadEtapes() }, [open])
 
   const handleOptimiser = async () => {
-  setOptimizing(true)
-  try {
-    const res = await entrepriseApi.optimiserTournee(tournee.id)
-    
-    // L'API renvoie { detail, etapes: [...] }
-    if (res.data.etapes) {
-      setEtapes(res.data.etapes)
-    } else {
-      loadEtapes() // fallback
-    }
-  } catch (err) {
-    console.error(err)
-    alert("Erreur lors de l'optimisation")
-  } finally {
-    setOptimizing(false)
-  }
-}
-
-  const handleStatut = async (statut) => {
+    setOptimizing(true)
     try {
-      await entrepriseApi.updateTournee(tournee.id, { statut })
-      onRefresh()
-    } catch { }
+      const res = await tourneesApi.optimiser(tournee.id)
+      if (res.data.etapes) {
+        setEtapes(res.data.etapes)
+      } else {
+        loadEtapes()
+      }
+    } catch (err) {
+      console.error(err)
+      alert("Erreur lors de l'optimisation")
+    } finally {
+      setOptimizing(false)
+    }
   }
 
   const handleDelete = async () => {
     if (!window.confirm('Supprimer cette tournée ?')) return
     try {
-      await entrepriseApi.deleteTournee(tournee.id)
+      await tourneesApi.delete(tournee.id)
       onRefresh()
     } catch { }
   }
 
-  // Drag & Drop pour réordonnement (US-20)
+  // Drag & Drop pour réordonnement
   const handleDragStart = (i) => setDragIdx(i)
   const handleDragOver  = (e) => e.preventDefault()
   const handleDrop = async (targetIdx) => {
-  if (dragIdx === null || dragIdx === targetIdx) return
+    if (dragIdx === null || dragIdx === targetIdx) return
 
-  const newEtapes = [...etapes]
-  const [moved] = newEtapes.splice(dragIdx, 1)
-  newEtapes.splice(targetIdx, 0, moved)
+    const newEtapes = [...etapes]
+    const [moved] = newEtapes.splice(dragIdx, 1)
+    newEtapes.splice(targetIdx, 0, moved)
 
-  // 🔥 recalcul ordre visuel immédiat
-  const updated = newEtapes.map((e, i) => ({
-    ...e,
-    ordre: i + 1
-  }))
+    const updated = newEtapes.map((e, i) => ({
+      ...e,
+      ordre: i + 1
+    }))
 
-  setEtapes(updated)
-  setDragIdx(null)
+    setEtapes(updated)
+    setDragIdx(null)
 
-  try {
-    await entrepriseApi.reordonnerTournee(
-      tournee.id,
-      updated.map(e => e.id)
-    )
-  } catch {
-    loadEtapes()
+    try {
+      await tourneesApi.reordonner(
+        tournee.id,
+        updated.map(e => e.id)
+      )
+    } catch {
+      loadEtapes()
+    }
   }
-}
+
   return (
     <div className="card" style={{ marginBottom: 12, padding: 0, overflow: 'hidden' }}>
-      {/* Header */}
+      {/* Header - inchangé */}
       <div
         style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', cursor: 'pointer', background: open ? 'rgba(30,77,123,0.04)' : 'transparent' }}
         onClick={() => setOpen(o => !o)}
@@ -202,10 +290,10 @@ function TourneeCard({ tournee, onRefresh }) {
         </div>
       </div>
 
-      {/* Détail */}
+      {/* Détail - inchangé */}
       {open && (
         <div style={{ borderTop: '1px solid var(--border)', padding: '14px 18px' }}>
-          {/* Actions */}
+          {/* Actions et liste des étapes - inchangé */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
             {tournee.statut === 'planifiee' && (
               <>
@@ -216,7 +304,6 @@ function TourneeCard({ tournee, onRefresh }) {
                 >
                   <Zap size={13} /> {optimizing ? 'Optimisation...' : 'Optimiser l\'ordre'}
                 </button>
-                {/* Bouton Démarrer supprimé — action réservée au livreur */}
                 <button
                   className="btn btn-ghost btn-sm"
                   style={{ color: '#ef4444' }}
@@ -226,18 +313,14 @@ function TourneeCard({ tournee, onRefresh }) {
                 </button>
               </>
             )}
-            {/* Bloc statut en_cours supprimé — Terminer réservé au livreur */}
             {tournee.statut === 'en_cours' && (
               <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 0' }}>
                 🚚 Tournée en cours — en attente du livreur
               </div>
             )}
-            <span style={{ fontSize: 11, color: 'var(--text-muted)', alignSelf: 'center' }}>
-              {tournee.statut === 'planifiee' ? '↕ Glissez-déposez pour réordonner' : ''}
-            </span>
           </div>
 
-          {/* Liste étapes */}
+          {/* Liste étapes - inchangé */}
           {loading ? (
             <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>Chargement...</p>
           ) : etapes.length === 0 ? (
@@ -290,10 +373,11 @@ function TourneeCard({ tournee, onRefresh }) {
 
 // ── Page principale ─────────────────────────────────────────────────────────
 export default function TourneesEntreprise() {
-  const [tournees, setTournees]     = useState([])
-  const [livreurs, setLivreurs]     = useState([])
-  const [loading, setLoading]       = useState(true)
-  const [showModal, setShowModal]   = useState(false)
+  const [tournees, setTournees]         = useState([])
+  const [livreurs, setLivreurs]         = useState([])
+  const [commandesEnAttente, setCommandesEnAttente] = useState([])   // ← Ajouté
+  const [loading, setLoading]           = useState(true)
+  const [showModal, setShowModal]       = useState(false)
   const [filtreStatut, setFiltreStatut] = useState('')
   const [autoLoading, setAutoLoading]   = useState(false)
   const [autoResult, setAutoResult]     = useState(null)
@@ -301,15 +385,22 @@ export default function TourneesEntreprise() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const params = filtreStatut ? { statut: filtreStatut } : {}
-      const [rTournees, rLivreurs] = await Promise.all([
-        entrepriseApi.tournees(params),
+      const [rTournees, rLivreurs, rCommandes] = await Promise.all([
+        tourneesApi.list(filtreStatut ? { statut: filtreStatut } : {})  ,      
         entrepriseApi.livreurs(),
+        entrepriseApi.commandesEnAttente?.() || Promise.resolve({ data: [] })  // ← Sécurité si méthode pas encore créée
       ])
+
       setTournees(rTournees.data)
       setLivreurs(rLivreurs.data)
-    } catch { setTournees([]) }
-    finally { setLoading(false) }
+      setCommandesEnAttente(rCommandes.data || [])
+    } catch (err) {
+      console.error(err)
+      setTournees([])
+      setCommandesEnAttente([])
+    } finally {
+      setLoading(false)
+    }
   }, [filtreStatut])
 
   useEffect(() => { load() }, [load])
@@ -346,17 +437,14 @@ export default function TourneesEntreprise() {
         </div>
       </div>
 
-      {/* Résultat affectation auto */}
       {autoResult && (
         <div className={`alert ${autoResult.error ? 'alert-error' : 'alert-success'}`} style={{ marginBottom: 16 }}>
           {autoResult.error
             ? autoResult.error
-            : `✅ ${autoResult.affectees} commande(s) affectée(s) automatiquement · ${autoResult.non_affectees} sans livreur disponible`
-          }
+            : `✅ ${autoResult.affectees} commande(s) affectée(s) automatiquement`}
         </div>
       )}
 
-      {/* Filtre statut */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
         {['', 'planifiee', 'en_cours', 'terminee', 'annulee'].map(s => (
           <button
@@ -369,7 +457,6 @@ export default function TourneesEntreprise() {
         ))}
       </div>
 
-      {/* Liste tournées */}
       {loading ? (
         <div className="empty-state"><p>Chargement...</p></div>
       ) : tournees.length === 0 ? (
@@ -390,6 +477,7 @@ export default function TourneesEntreprise() {
       {showModal && (
         <TourneeModal
           livreurs={livreurs.filter(l => l.statut === 'disponible' || !l.statut)}
+          commandesEnAttente={commandesEnAttente}
           onClose={() => setShowModal(false)}
           onSuccess={load}
         />

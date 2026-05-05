@@ -29,8 +29,8 @@ INSTALLED_APPS = [
     'entreprise',
     'tournees',
     'notifications.apps.NotificationsConfig',
-'retours.apps.RetoursConfig',
-'notifications_client.apps.NotificationsClientConfig',
+    'retours.apps.RetoursConfig',
+    'notifications_client.apps.NotificationsClientConfig',
 ]
 
 MIDDLEWARE = [

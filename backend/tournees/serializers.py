@@ -1,7 +1,8 @@
 from rest_framework import serializers
+from django.db import transaction
+
 from .models import Tournee, AffectationCommande
-from commandes.models import Commande, StatutCommande
-from commandes.serializers import CommandeSerializer
+from commandes.models import Commande, StatutCommande, HistoriqueStatut
 
 
 # ─────────────────────────────────────────
@@ -28,8 +29,8 @@ class AffectationSerializer(serializers.ModelSerializer):
             'commande', 'commande_reference',
             'commande_dest_nom', 'commande_dest_prenom',
             'commande_gouvernorat', 'commande_statut',
-            'commande_montant','commande_dest_adresse',      
-            'affectee_le','commande_dest_telephone',
+            'commande_montant', 'commande_dest_adresse',      
+            'affectee_le', 'commande_dest_telephone',
         ]
 
 
@@ -81,13 +82,34 @@ class TourneeListSerializer(serializers.ModelSerializer):
         return obj.livreur.nom_complet if obj.livreur else None
 
 
+# ─────────────────────────────────────────
+# CRÉATION DE TOURNÉE AVEC SÉLECTION DE COMMANDES
+# ─────────────────────────────────────────
+
 class TourneeCreateSerializer(serializers.ModelSerializer):
+    commande_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        required=False,
+        allow_empty=True,
+        write_only=True,
+        help_text="Liste des IDs des commandes à affecter"
+    )
+
     class Meta:
-        model  = Tournee
+        model = Tournee
         fields = [
-            'livreur', 'date_prevue', 'heure_depart',
-            'zone_gouvernorat', 'notes',
+            'livreur', 
+            'date_prevue', 
+            'heure_depart',
+            'zone_gouvernorat', 
+            'notes',
+            'commande_ids'
         ]
+
+    def validate_livreur(self, livreur):
+        if not livreur:
+            raise serializers.ValidationError("Le livreur est requis")
+        return livreur
 
     def validate_date_prevue(self, value):
         from datetime import datetime, timedelta
@@ -102,17 +124,57 @@ class TourneeCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Le gouvernorat est requis")
         return value.strip()
 
-    def validate_notes(self, value):
-        if value and len(value) > 500:
-            raise serializers.ValidationError("Les notes ne peuvent pas dépasser 500 caractères")
-        return value or ""
+    def validate_commande_ids(self, value):
+        if not value:
+            return value
 
-    def validate_livreur(self, livreur):
-        if not livreur:
-            raise serializers.ValidationError("Le livreur est requis")
-        return livreur
+        commandes = Commande.objects.filter(id__in=value, statut=StatutCommande.EN_ATTENTE)
+        if len(commandes) != len(value):
+            raise serializers.ValidationError(
+                "Certaines commandes sont introuvables ou ne sont plus en attente."
+            )
+        return value
+
+    def create(self, validated_data):
+        commande_ids = validated_data.pop('commande_ids', [])
+        entreprise = self.context.get('entreprise')
+
+        if not entreprise:
+            raise serializers.ValidationError("Entreprise non trouvée dans le contexte.")
+
+        tournee = Tournee.objects.create(
+            entreprise=entreprise,
+            **validated_data
+        )
+
+        if commande_ids:
+            with transaction.atomic():
+                for i, cmd_id in enumerate(commande_ids, start=1):
+                    commande = Commande.objects.get(id=cmd_id)
+
+                    AffectationCommande.objects.create(
+                        tournee=tournee,
+                        commande=commande,
+                        ordre=i,
+                        notes="Affectée lors de la création de la tournée"
+                    )
+
+                    # Mise à jour statut commande
+                    ancien = commande.statut
+                    commande.statut = StatutCommande.PRISE_CHARGE
+                    commande.save()
+
+                    HistoriqueStatut.objects.create(
+                        commande=commande,
+                        ancien_statut=ancien,
+                        nouveau_statut=StatutCommande.PRISE_CHARGE,
+                        commentaire=f"Affectée à la tournée {tournee.reference}"
+                    )
+
+        return tournee
 
 
+# Garder TourneeUpdateSerializer si tu en as besoin ailleurs
 class TourneeUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Tournee
@@ -123,7 +185,7 @@ class TourneeUpdateSerializer(serializers.ModelSerializer):
 
 
 # ─────────────────────────────────────────
-# AFFECTATION — Création
+# AFFECTATION — Création (pour usage séparé)
 # ─────────────────────────────────────────
 
 class AffectationCreateSerializer(serializers.Serializer):
@@ -141,15 +203,3 @@ class AffectationCreateSerializer(serializers.Serializer):
         except Commande.DoesNotExist:
             raise serializers.ValidationError("Commande introuvable")
         return value
-
-    def validate_ordre(self, value):
-        if value <= 0:
-            raise serializers.ValidationError("L'ordre doit être supérieur à 0")
-        if value > 1000:
-            raise serializers.ValidationError("L'ordre semble élevé pour une tournée")
-        return value
-
-    def validate_notes(self, value):
-        if value and len(value) > 500:
-            raise serializers.ValidationError("Les notes ne peuvent pas dépasser 500 caractères")
-        return value or ""

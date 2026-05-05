@@ -1,25 +1,43 @@
-# views_gps.py
+# backend/entreprise/views_gps.py
+
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework import status
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
-from .models import Livreur, StatutLivreur
-from tournees.models import Tournee, AffectationCommande, StatutTournee
+from entreprise.models import Livreur
+from accounts.models import EntrepriseProfile   # pour get_entreprise_or_403 si besoin
 
 
-class LivreurGPSUpdateView(APIView):
-    """ POST /api/entreprise/livreurs/gps/update/ """
+def get_entreprise_or_403(user):
+    """Helper réutilisable"""
+    if user.role != 'entreprise':
+        return None
+    return getattr(user, 'entreprise_profile', None)
+
+
+# ===================================================================
+# MISE À JOUR POSITION GPS DU LIVREUR (Mobile)
+# POST /api/entreprise/livreurs/<pk>/position/
+# ===================================================================
+class LivreurPositionUpdateView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def post(self, request):
-        if request.user.role != 'livreur':
-            return Response({'detail': 'Accès réservé aux livreurs.'}, status=403)
+    def post(self, request, pk):
+        livreur = get_object_or_404(Livreur, pk=pk)
 
-        livreur = getattr(request.user, 'livreur_profile', None)
-        if not livreur:
-            return Response({'detail': 'Profil livreur introuvable.'}, status=404)
+        # Autorisation : livreur lui-même OU son entreprise
+        if request.user.role == 'livreur':
+            if getattr(request.user, 'livreur_profile', None) != livreur:
+                return Response({'detail': 'Accès réservé à votre propre profil.'}, status=403)
+        elif request.user.role == 'entreprise':
+            entreprise = get_entreprise_or_403(request.user)
+            if not entreprise or livreur.entreprise != entreprise:
+                return Response({'detail': 'Accès réservé aux livreurs de votre entreprise.'}, status=403)
+        else:
+            return Response({'detail': 'Accès non autorisé.'}, status=403)
 
         lat = request.data.get('latitude')
         lng = request.data.get('longitude')
@@ -33,74 +51,62 @@ class LivreurGPSUpdateView(APIView):
         except (ValueError, TypeError):
             return Response({'detail': 'Coordonnées GPS invalides.'}, status=400)
 
-        # Validation Tunisie
-        if not (29.0 <= lat <= 38.0 and 7.0 <= lng <= 12.0):
-            return Response({'detail': 'Coordonnées hors zone Tunisie.'}, status=400)
-
+        # Mise à jour
         livreur.latitude = lat
         livreur.longitude = lng
         livreur.derniere_position = timezone.now()
         livreur.save(update_fields=['latitude', 'longitude', 'derniere_position'])
 
         return Response({
-            'detail': 'Position mise à jour.',
+            'detail': 'Position mise à jour avec succès.',
             'latitude': lat,
             'longitude': lng,
-            'timestamp': livreur.derniere_position.isoformat(),
+            'derniere_maj': livreur.derniere_position.isoformat() if livreur.derniere_position else None,
         })
 
 
-class EtapeNavigationView(APIView):
-    """ GET /api/entreprise/livreur/navigation/<affectation_id>/ """
+# ===================================================================
+# POSITIONS DE TOUS LES LIVREURS (pour le suivi entreprise)
+# GET /api/entreprise/livreurs/positions/
+# ===================================================================
+class EntrepriseLivreursPositionsView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def get(self, request, affectation_id):
-        if request.user.role != 'livreur':
-            return Response({'detail': 'Accès réservé aux livreurs.'}, status=403)
+    def get(self, request):
+        if request.user.role != 'entreprise':
+            return Response({'detail': 'Accès réservé aux entreprises.'}, status=403)
 
-        livreur = getattr(request.user, 'livreur_profile', None)
-        if not livreur:
-            return Response({'detail': 'Profil livreur introuvable.'}, status=404)
+        entreprise = get_entreprise_or_403(request.user)
+        if not entreprise:
+            return Response({'detail': 'Profil entreprise introuvable.'}, status=404)
 
-        affectation = get_object_or_404(
-            AffectationCommande,
-            pk=affectation_id,
-            tournee__livreur=livreur
-        )
+        livreurs = Livreur.objects.filter(entreprise=entreprise)
 
-        commande = affectation.commande
-        adresse_complete = f"{commande.dest_adresse}, {commande.dest_gouvernorat}, Tunisie"
+        if request.query_params.get('en_tournee') == 'true':
+            livreurs = livreurs.filter(statut='en_tournee')
 
-        dest_lat = getattr(commande, 'dest_latitude', None)
-        dest_lng = getattr(commande, 'dest_longitude', None)
+        data = []
+        for l in livreurs:
+            tournee_active = l.tournees.filter(statut='en_cours').first()
 
-        if dest_lat and dest_lng:
-            google_url = f"https://www.google.com/maps/dir/?api=1&destination={dest_lat},{dest_lng}&travelmode=driving"
-            waze_url   = f"https://waze.com/ul?ll={dest_lat},{dest_lng}&navigate=yes"
-            apple_url  = f"https://maps.apple.com/?daddr={dest_lat},{dest_lng}&dirflg=d"
-        else:
-            encoded = adresse_complete.replace(' ', '+').replace(',', '%2C')
-            google_url = f"https://www.google.com/maps/dir/?api=1&destination={encoded}&travelmode=driving"
-            waze_url   = f"https://waze.com/ul?q={encoded}&navigate=yes"
-            apple_url  = f"https://maps.apple.com/?q={encoded}"
+            nb_commandes = 0
+            if tournee_active:
+                nb_commandes = tournee_active.affectations.exclude(
+                    commande__statut__in=['livree', 'retournee']
+                ).count()
 
-        return Response({
-            'commande_reference': commande.reference,
-            'dest_nom': commande.dest_nom,
-            'dest_prenom': commande.dest_prenom,
-            'dest_telephone': commande.dest_telephone,
-            'dest_adresse': commande.dest_adresse,
-            'dest_gouvernorat': commande.dest_gouvernorat,
-            'adresse_complete': adresse_complete,
-            'montant_a_collecter': str(commande.montant_a_collecter),
-            'dest_latitude': dest_lat,
-            'dest_longitude': dest_lng,
-            'has_gps': bool(dest_lat and dest_lng),
-            'navigation': {
-                'google_maps': google_url,
-                'waze': waze_url,
-                'apple_maps': apple_url,
-            },
-            'ordre': affectation.ordre,
-            'statut': commande.statut,
-        })
+            data.append({
+                'id': l.id,
+                'nom_complet': l.nom_complet,
+                'telephone': l.telephone,
+                'statut': l.statut,
+                'vehicule': l.type_vehicule,
+                'latitude': l.latitude,
+                'longitude': l.longitude,
+                'derniere_maj': l.derniere_position.isoformat() if l.derniere_position else None,
+                'tournee_id': tournee_active.id if tournee_active else None,
+                'tournee_reference': tournee_active.reference if tournee_active else None,
+                'nb_commandes_en_cours': nb_commandes,
+            })
+
+        return Response(data)

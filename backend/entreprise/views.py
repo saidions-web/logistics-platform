@@ -267,20 +267,16 @@ class LivreurListCreateView(APIView):
 # ─────────────────────────────────────────
 # LIVREUR DÉTAIL - Version corrigée (GET / PATCH / DELETE)
 # ─────────────────────────────────────────
+# LIVREUR DÉTAIL - Version finale et sécurisée
+# ─────────────────────────────────────────
 
 class LivreurDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
     def _get_livreur(self, pk, entreprise):
-        """Récupère le livreur avec vérification entreprise"""
-        return get_object_or_404(
-            Livreur, 
-            pk=pk, 
-            entreprise=entreprise
-        )
+        return get_object_or_404(Livreur, pk=pk, entreprise=entreprise)
 
     def get(self, request, pk):
-        """Récupérer un livreur"""
         entreprise = get_entreprise_or_403(request.user)
         if not entreprise:
             return Response({'detail': 'Accès réservé aux entreprises.'}, status=403)
@@ -289,7 +285,6 @@ class LivreurDetailView(APIView):
         return Response(LivreurSerializer(livreur).data)
 
     def patch(self, request, pk):
-        """Modifier un livreur"""
         entreprise = get_entreprise_or_403(request.user)
         if not entreprise:
             return Response({'detail': 'Accès réservé aux entreprises.'}, status=403)
@@ -304,17 +299,24 @@ class LivreurDetailView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, pk):
-        """
-        Supprime un livreur de manière sécurisée :
-        - Désactive son compte utilisateur (bloque l'accès à l'app mobile)
-        - Dissocie le profil Livreur
-        - Nettoie les tournées en cours associées
-        """
+    
         entreprise = get_entreprise_or_403(request.user)
         if not entreprise:
             return Response({'detail': 'Accès réservé aux entreprises.'}, status=403)
 
         livreur = self._get_livreur(pk, entreprise)
+
+        # Vérification métier : Peut-on supprimer ce livreur ?
+        from tournees.models import Tournee, StatutTournee
+        tournées_en_cours = Tournee.objects.filter(
+            livreur=livreur,
+            statut__in=[StatutTournee.PLANIFIEE, StatutTournee.EN_COURS]
+        ).exists()
+
+        if tournées_en_cours:
+            return Response({
+                'detail': 'Impossible de supprimer ce livreur car il a des tournées planifiées ou en cours.'
+            }, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             with transaction.atomic():
@@ -324,9 +326,7 @@ class LivreurDetailView(APIView):
                     user.is_active = False
                     user.save(update_fields=['is_active'])
 
-                # 2. Nettoyer les tournées en cours / planifiées
-                from .models import Tournee, StatutTournee   # Import local pour éviter circular import
-
+                # 2. Retirer le livreur des tournées actives (par sécurité, même si on a vérifié)
                 Tournee.objects.filter(
                     livreur=livreur,
                     statut__in=[StatutTournee.PLANIFIEE, StatutTournee.EN_COURS]
@@ -339,17 +339,19 @@ class LivreurDetailView(APIView):
                 # 4. Supprimer le profil Livreur
                 livreur.delete()
 
-            return Response({
-                'detail': 'Livreur supprimé avec succès. '
-                          'Son compte utilisateur a été désactivé et ne peut plus se connecter à l\'application mobile.'
-            }, status=status.HTTP_204_NO_CONTENT)
+            return Response(
+                {'detail': 'Livreur supprimé avec succès.'},
+                status=status.HTTP_200_OK
+            )
 
         except Exception as e:
-            print(f"Erreur suppression livreur {pk}: {e}")
-            return Response({
-                'detail': 'Une erreur est survenue lors de la suppression du livreur.'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-# Ajoute cette classe dans le fichier views.py de l'app entreprise
+            import logging
+            logging.getLogger(__name__).error(f"Erreur suppression livreur {pk}: {e}")
+            return Response(
+                {'detail': 'Une erreur est survenue lors de la suppression du livreur.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+ 
 
 class PreuveLivraisonCreateView(APIView):
     permission_classes = [IsAuthenticated]
