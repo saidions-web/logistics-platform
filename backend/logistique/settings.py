@@ -1,12 +1,11 @@
 from pathlib import Path
 from datetime import timedelta
 from decouple import config
-
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = config('SECRET_KEY')
 DEBUG = config('DEBUG', default=False, cast=bool)
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='').split(',')
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '192.168.1.53']
 
 # Apps
 INSTALLED_APPS = [
@@ -102,6 +101,7 @@ SIMPLE_JWT = {
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:5173',
     'http://127.0.0.1:5173',
+    'http://192.168.1.53:8000',
 ]
 
 # Email SMTP

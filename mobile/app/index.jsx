@@ -18,44 +18,88 @@ import {
 } from 'react-native';
 import { login } from '../store/auth';
 import { COLORS, RADIUS, SHADOW } from '../constants/theme';
- 
+
 export default function LoginScreen() {
   const router = useRouter();
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading]   = useState(false);
   const [focused, setFocused]   = useState(null);
- 
+
   const handleLogin = async () => {
-    if (!email || !password) {
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedPassword = password.trim();
+
+    if (!trimmedEmail || !trimmedPassword) {
       Alert.alert('Champs requis', 'Veuillez remplir tous les champs.');
       return;
     }
+
     setLoading(true);
     try {
-      await login(email, password);
+      await login(trimmedEmail, trimmedPassword);
       router.replace('/(app)/tournee');
     } catch (e) {
+      // Erreur rôle non livreur
       if (e.message === 'Accès réservé aux livreurs') {
         Alert.alert('Accès refusé', "Ce compte n'est pas un compte livreur.");
-      } else {
-        Alert.alert('Connexion échouée', 'Email ou mot de passe incorrect.');
+        return;
       }
+
+      // Erreur réseau (pas de connexion au serveur)
+      if (!e.response) {
+        Alert.alert(
+          'Erreur réseau',
+          'Impossible de contacter le serveur. Vérifiez votre connexion et l\'adresse IP du serveur.',
+        );
+        return;
+      }
+
+      // Erreur Django REST Framework — non_field_errors
+      const data = e.response?.data;
+      if (data?.non_field_errors?.length) {
+        Alert.alert('Connexion échouée', data.non_field_errors[0]);
+        return;
+      }
+
+      // Erreur champ email / password
+      if (data?.email?.length) {
+        Alert.alert('Connexion échouée', data.email[0]);
+        return;
+      }
+      if (data?.password?.length) {
+        Alert.alert('Connexion échouée', data.password[0]);
+        return;
+      }
+
+      // Erreur HTTP générique
+      if (e.response?.status === 401 || e.response?.status === 400) {
+        Alert.alert('Connexion échouée', 'Email ou mot de passe incorrect.');
+        return;
+      }
+
+      if (e.response?.status === 403) {
+        Alert.alert('Accès refusé', 'Votre compte n\'est pas autorisé à se connecter.');
+        return;
+      }
+
+      // Fallback
+      Alert.alert('Erreur', e.message || 'Une erreur inattendue est survenue.');
     } finally {
       setLoading(false);
     }
   };
- 
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
- 
+
       {/* Top decorative strip */}
       <View style={styles.topStrip} />
- 
+
       <View style={styles.inner}>
         {/* Logo / Brand */}
         <View style={styles.brandBlock}>
@@ -65,14 +109,14 @@ export default function LoginScreen() {
           <Text style={styles.logoText}>LogiSync</Text>
           <Text style={styles.logoSub}>Espace Livreur</Text>
         </View>
- 
+
         {/* Card */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Connexion</Text>
           <Text style={styles.cardSub}>
             Connectez-vous pour accéder à vos tournées
           </Text>
- 
+
           <View style={styles.fieldGroup}>
             <Text style={styles.label}>Adresse email</Text>
             <TextInput
@@ -82,12 +126,14 @@ export default function LoginScreen() {
               value={email}
               onChangeText={setEmail}
               autoCapitalize="none"
+              autoCorrect={false}
               keyboardType="email-address"
               onFocus={() => setFocused('email')}
               onBlur={() => setFocused(null)}
+              editable={!loading}
             />
           </View>
- 
+
           <View style={styles.fieldGroup}>
             <Text style={styles.label}>Mot de passe</Text>
             <TextInput
@@ -97,11 +143,15 @@ export default function LoginScreen() {
               value={password}
               onChangeText={setPassword}
               secureTextEntry
+              autoCorrect={false}
               onFocus={() => setFocused('password')}
               onBlur={() => setFocused(null)}
+              editable={!loading}
+              onSubmitEditing={handleLogin}
+              returnKeyType="done"
             />
           </View>
- 
+
           <TouchableOpacity
             style={[styles.btn, loading && styles.btnDisabled]}
             onPress={handleLogin}
@@ -114,7 +164,7 @@ export default function LoginScreen() {
             }
           </TouchableOpacity>
         </View>
- 
+
         {/* Footer note */}
         <Text style={styles.footer}>
           Accès réservé aux livreurs autorisés
@@ -123,7 +173,7 @@ export default function LoginScreen() {
     </KeyboardAvoidingView>
   );
 }
- 
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -240,4 +290,3 @@ const styles = StyleSheet.create({
     marginTop: 24,
   },
 });
- 

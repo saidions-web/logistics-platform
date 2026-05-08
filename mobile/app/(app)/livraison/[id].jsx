@@ -1,11 +1,10 @@
 /**
  * app/(app)/livraison/[id].jsx — Détail Tournée Livreur
- * FIX GPS :
- *  1. Utilise tournee.livreur (int FK) au lieu de tournee.livreur.id
- *  2. Import expo-location statique en haut du fichier
- *  3. Accuracy HIGH (Location.Accuracy.High = 5)
- *  4. Envoi GPS démarre dès que la tournée est 'en_cours' ET que l'id livreur est connu
- *  5. Nettoyage propre du watchPositionAsync à l'unmount
+ * FIXES :
+ *  1. tournee.livreur_id (champ explicite) au lieu de tournee.livreur
+ *  2. GPS démarre correctement quand livreur_id est disponible
+ *  3. Preuve livraison envoyée en FormData multipart
+ *  4. Gestion d'erreur améliorée partout
  */
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -25,7 +24,6 @@ import {
   View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-// ✅ FIX 1 : Import statique (pas dynamique dans une fonction)
 import * as Location from 'expo-location';
 
 import api from '../../../services/api';
@@ -43,7 +41,6 @@ const MOTIFS = [
   { value: 'autre',            label: 'Autre' },
 ];
 
-// ✅ FIX 2 : Intervalle réduit à 15s pour un suivi plus fluide
 const GPS_INTERVAL_MS = 15000;
 
 // ─────────────────────────────────────────
@@ -57,16 +54,13 @@ function ouvrirNavigation(etape) {
     ? `https://www.google.com/maps/dir/?api=1&destination=${dest_latitude},${dest_longitude}&travelmode=driving`
     : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${commande_dest_adresse || ''}, ${commande_gouvernorat || ''}, Tunisie`)}&travelmode=driving`;
 
-  const wazeUrl = hasGPS
-    ? `https://waze.com/ul?ll=${dest_latitude},${dest_longitude}&navigate=yes`
-    : `https://waze.com/ul?q=${encodeURIComponent(`${commande_dest_adresse || ''}, ${commande_gouvernorat || ''}, Tunisie`)}&navigate=yes`;
+  
 
   Alert.alert(
     '🗺 Navigation',
     hasGPS ? 'Position GPS précise disponible' : 'Navigation par adresse',
     [
       { text: 'Google Maps', onPress: () => Linking.openURL(googleUrl).catch(() => Alert.alert('Erreur', "Impossible d'ouvrir Google Maps")) },
-      { text: 'Waze',        onPress: () => Linking.openURL(wazeUrl).catch(() => Alert.alert('Erreur', "Impossible d'ouvrir Waze")) },
       { text: 'Annuler',     style: 'cancel' },
     ]
   );
@@ -116,7 +110,7 @@ function StatusBadge({ statut }) {
 }
 
 function EtapeCard({ etape, estEnCours, estTerminee, onLivrer, onRetour, onNaviguer, onCall }) {
-  const estLivree   = etape.commande_statut === 'livree';
+  const estLivree    = etape.commande_statut === 'livree';
   const estRetournee = etape.commande_statut === 'retournee';
 
   return (
@@ -190,12 +184,17 @@ function PreuveLivraisonModal({ visible, etape, onClose, onConfirm, loading }) {
   const [commentaire, setCommentaire] = useState('');
 
   const pickImage = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission requise', 'Autorisez l\'accès à la caméra pour prendre une photo.');
+      return;
+    }
     const result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
       aspect: [4, 3],
-      quality: 0.8,
+      quality: 0.7,
     });
-    if (!result.canceled) {
+    if (!result.canceled && result.assets?.length > 0) {
       setPhotoUri(result.assets[0].uri);
     }
   };
@@ -357,34 +356,34 @@ export default function LivraisonDetailScreen() {
   const { id } = useLocalSearchParams();
   const router  = useRouter();
 
-  const [tournee, setTournee]         = useState(null);
-  const [etapes, setEtapes]           = useState([]);
-  const [loading, setLoading]         = useState(true);
-  const [refreshing, setRefreshing]   = useState(false);
+  const [tournee, setTournee]             = useState(null);
+  const [etapes, setEtapes]               = useState([]);
+  const [loading, setLoading]             = useState(true);
+  const [refreshing, setRefreshing]       = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
-  const [gpsStatus, setGpsStatus]     = useState('idle'); // 'idle' | 'active' | 'error'
+  const [gpsStatus, setGpsStatus]         = useState('idle');
 
   const [retourTarget, setRetourTarget]   = useState(null);
   const [livrerTarget, setLivrerTarget]   = useState(null);
   const [retourLoading, setRetourLoading] = useState(false);
   const [preuveLoading, setPreuveLoading] = useState(false);
 
-  // ✅ FIX 3 : On utilise un ref pour stocker l'abonnement watchPositionAsync
-  const gpsSubscriptionRef = useRef(null);
-  const gpsIntervalRef     = useRef(null);
+  const gpsIntervalRef = useRef(null);
 
-  // ─── Chargement des données ───────────────────────────────────
+  // ─── Chargement ───────────────────────────────────────────────
   const load = useCallback(async () => {
     try {
       const [resTournee, resEtapes] = await Promise.all([
-        api.get(`/entreprise/livreur/tournees/${id}/`),
-        api.get(`/entreprise/livreur/tournees/${id}/commandes/`),
+        api.get(`/tournees/livreur/tournees/${id}/`),
+        api.get(`/tournees/livreur/tournees/${id}/commandes/`),
       ]);
+      console.log('[DETAIL] Tournée:', resTournee.data);
+      console.log('[DETAIL] livreur_id:', resTournee.data?.livreur_id, '| livreur:', resTournee.data?.livreur);
       setTournee(resTournee.data);
-      setEtapes(resEtapes.data);
+      setEtapes(Array.isArray(resEtapes.data) ? resEtapes.data : []);
     } catch (err) {
+      console.error('[DETAIL] Erreur:', err.response?.status, err.message);
       Alert.alert('Erreur', 'Impossible de charger le détail de la tournée.');
-      console.error(err);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -393,92 +392,73 @@ export default function LivraisonDetailScreen() {
 
   useEffect(() => { load(); }, [load]);
 
-  // ─── GPS : démarre / stoppe selon statut tournée ──────────────
+  // ─── GPS ──────────────────────────────────────────────────────
   useEffect(() => {
-    // ✅ FIX 4 : livreur est un INT (FK), pas un objet
-    // Le sérialiseur TourneeSerializer renvoie livreur comme l'ID entier
-    const livreurId = tournee?.livreur;   // int directement
+    // FIX: essayer livreur_id en priorité, puis livreur (selon ce que le sérialiseur expose)
+    const livreurId = tournee?.livreur_id ?? tournee?.livreur;
     const estEnCours = tournee?.statut === 'en_cours';
 
+    console.log('[GPS] statut:', tournee?.statut, '| livreurId:', livreurId);
+
     if (!estEnCours || !livreurId) {
-      // Arrêter le GPS si la tournée n'est plus en cours
       stopGPS();
       return;
     }
 
     startGPS(livreurId);
-
     return () => stopGPS();
-  }, [tournee?.statut, tournee?.livreur]);
-
-  // ─── Fonctions GPS ────────────────────────────────────────────
+  }, [tournee?.statut, tournee?.livreur_id, tournee?.livreur]);
 
   const stopGPS = () => {
-    if (gpsSubscriptionRef.current) {
-      gpsSubscriptionRef.current.remove();
-      gpsSubscriptionRef.current = null;
-    }
     if (gpsIntervalRef.current) {
       clearInterval(gpsIntervalRef.current);
       gpsIntervalRef.current = null;
+      console.log('[GPS] Arrêté');
     }
   };
 
   const startGPS = async (livreurId) => {
-    // Éviter double démarrage
-    if (gpsSubscriptionRef.current || gpsIntervalRef.current) return;
+    if (gpsIntervalRef.current) return;
 
     try {
-      // ✅ FIX 5 : Demande de permission propre
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         setGpsStatus('error');
-        Alert.alert(
-          'GPS requis',
-          'Activez la localisation pour permettre le suivi de votre tournée.',
-          [{ text: 'OK' }]
-        );
+        Alert.alert('GPS requis', 'Activez la localisation pour le suivi de tournée.');
         return;
       }
 
       setGpsStatus('active');
+      console.log('[GPS] Démarré pour livreur:', livreurId);
 
-      // Envoyer la position immédiatement
       await sendPosition(livreurId);
 
-      // ✅ FIX 6 : Polling régulier via setInterval (plus fiable que watchPositionAsync en background)
       gpsIntervalRef.current = setInterval(() => {
         sendPosition(livreurId);
       }, GPS_INTERVAL_MS);
 
     } catch (err) {
-      console.error('[GPS] Erreur démarrage :', err);
+      console.error('[GPS] Erreur démarrage:', err);
       setGpsStatus('error');
     }
   };
 
-  // ✅ FIX 7 : Fonction sendPosition isolée et réutilisable
   const sendPosition = async (livreurId) => {
     try {
-      // ✅ FIX 8 : Accuracy HIGH (5) au lieu de Balanced (4)
       const loc = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
-
-      await api.post(`/entreprise/livreurs/${livreurId}/position/`, {
+      await api.post(`/tournees/livreurs/${livreurId}/position/`, {
         latitude:  loc.coords.latitude,
         longitude: loc.coords.longitude,
       });
-
-      console.log(`[GPS] Position envoyée : ${loc.coords.latitude}, ${loc.coords.longitude}`);
+      console.log(`[GPS] Envoyé: ${loc.coords.latitude.toFixed(5)}, ${loc.coords.longitude.toFixed(5)}`);
     } catch (err) {
-      // Erreur silencieuse — on réessaiera au prochain tick
-      console.warn('[GPS] Échec envoi position :', err?.message || err);
+      console.warn('[GPS] Échec envoi:', err?.message);
     }
   };
 
-  // ─── Actions tournée ──────────────────────────────────────────
-
+  // ─── Actions ──────────────────────────────────────────────────
   const changerStatutTournee = async (nouveauStatut) => {
     const msg = nouveauStatut === 'en_cours' ? 'Démarrer la tournée ?' : 'Terminer la tournée ?';
     Alert.alert('Confirmation', msg, [
@@ -488,9 +468,7 @@ export default function LivraisonDetailScreen() {
         onPress: async () => {
           setActionLoading(true);
           try {
-            await api.patch(`/entreprise/livreur/tournees/${id}/statut/`, {
-              statut: nouveauStatut,
-            });
+            await api.patch(`/tournees/livreur/tournees/${id}/statut/`, { statut: nouveauStatut });
             await load();
           } catch (err) {
             Alert.alert('Erreur', err.response?.data?.detail || 'Impossible de modifier le statut.');
@@ -502,21 +480,40 @@ export default function LivraisonDetailScreen() {
     ]);
   };
 
-  const handleLivrer = (etape) => {
-    setLivrerTarget(etape);
-  };
-
+  // FIX: envoi photo en FormData multipart
   const handlePreuveConfirm = async ({ etape, photoUri, commentaire }) => {
     setPreuveLoading(true);
     try {
+      // 1. Changer statut en JSON
       await api.patch(`/entreprise/commandes/${etape.commande}/statut/`, {
         statut: 'livree',
-        commentaire: commentaire || 'Livré avec photo de preuve via application mobile',
+        commentaire: commentaire || 'Livré avec preuve photo via app mobile',
       });
+
+      // 2. Envoyer la photo en multipart/form-data
+      if (photoUri) {
+        const formData = new FormData();
+        formData.append('photo_preuve', {
+          uri: photoUri,
+          name: `preuve_${etape.commande}_${Date.now()}.jpg`,
+          type: 'image/jpeg',
+        });
+        if (commentaire) {
+          formData.append('commentaire_livreur', commentaire);
+        }
+
+        await api.post(
+          `/entreprise/commandes/${etape.commande}/preuve/`,
+          formData,
+          { headers: { 'Content-Type': 'multipart/form-data' } }
+        );
+      }
+
       setLivrerTarget(null);
       await load();
-      Alert.alert('✓ Succès', 'Commande marquée comme livrée avec preuve.');
+      Alert.alert('✓ Succès', 'Commande marquée comme livrée.');
     } catch (err) {
+      console.error('[PREUVE] Erreur:', err.response?.data);
       Alert.alert('Erreur', err.response?.data?.detail || 'Impossible de confirmer la livraison.');
     } finally {
       setPreuveLoading(false);
@@ -551,7 +548,6 @@ export default function LivraisonDetailScreen() {
   };
 
   // ─── Render ───────────────────────────────────────────────────
-
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -574,11 +570,7 @@ export default function LivraisonDetailScreen() {
 
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backIconBtn}
-          onPress={() => router.back()}
-          activeOpacity={0.8}
-        >
+        <TouchableOpacity style={styles.backIconBtn} onPress={() => router.back()} activeOpacity={0.8}>
           <Text style={styles.backIcon}>‹</Text>
         </TouchableOpacity>
 
@@ -586,13 +578,10 @@ export default function LivraisonDetailScreen() {
           <Text style={styles.headerRef}>{tournee?.reference}</Text>
           <View style={[styles.headerBadge, { backgroundColor: statusColor + '22' }]}>
             <View style={[styles.headerBadgeDot, { backgroundColor: statusColor }]} />
-            <Text style={[styles.headerBadgeText, { color: statusColor }]}>
-              {statusLabel}
-            </Text>
+            <Text style={[styles.headerBadgeText, { color: statusColor }]}>{statusLabel}</Text>
           </View>
         </View>
 
-        {/* ✅ Indicateur GPS visible */}
         <View style={styles.gpsIndicator}>
           <View style={[
             styles.gpsDot,
@@ -691,7 +680,7 @@ export default function LivraisonDetailScreen() {
               etape={etape}
               estEnCours={estEnCours}
               estTerminee={estTerminee}
-              onLivrer={() => handleLivrer(etape)}
+              onLivrer={() => setLivrerTarget(etape)}
               onRetour={() => setRetourTarget(etape)}
               onNaviguer={() => ouvrirNavigation(etape)}
               onCall={() => handleCall(etape.commande_dest_telephone)}
@@ -708,7 +697,6 @@ export default function LivraisonDetailScreen() {
         onConfirm={handlePreuveConfirm}
         loading={preuveLoading}
       />
-
       <RetourModal
         visible={!!retourTarget}
         onClose={() => setRetourTarget(null)}
@@ -727,16 +715,15 @@ const styles = StyleSheet.create({
   loadingContainer: { flex: 1, backgroundColor: COLORS.bg, justifyContent: 'center', alignItems: 'center' },
   loadingText:      { marginTop: 12, color: COLORS.textMuted, fontSize: 14 },
 
-  header:        { backgroundColor: COLORS.primary, paddingTop: 52, paddingBottom: 16, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  backIconBtn:   { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.12)', justifyContent: 'center', alignItems: 'center' },
-  backIcon:      { color: '#fff', fontSize: 24, fontWeight: '300' },
-  headerCenter:  { flex: 1, alignItems: 'center' },
-  headerRef:     { color: '#fff', fontSize: 18, fontWeight: '800' },
-  headerBadge:   { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  headerBadgeDot:{ width: 8, height: 8, borderRadius: 4 },
+  header:         { backgroundColor: COLORS.primary, paddingTop: 52, paddingBottom: 16, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  backIconBtn:    { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.12)', justifyContent: 'center', alignItems: 'center' },
+  backIcon:       { color: '#fff', fontSize: 24, fontWeight: '300' },
+  headerCenter:   { flex: 1, alignItems: 'center' },
+  headerRef:      { color: '#fff', fontSize: 18, fontWeight: '800' },
+  headerBadge:    { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
+  headerBadgeDot: { width: 8, height: 8, borderRadius: 4 },
   headerBadgeText:{ fontSize: 12, fontWeight: '700' },
 
-  // ✅ Indicateur GPS dans le header
   gpsIndicator: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   gpsDot:       { width: 8, height: 8, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.3)' },
   gpsDotActive: { backgroundColor: '#4ade80' },
@@ -762,46 +749,46 @@ const styles = StyleSheet.create({
   scroll:        { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 80 },
 
-  etapeCard:         { backgroundColor: COLORS.white, borderRadius: RADIUS.lg, marginBottom: 12, flexDirection: 'row', overflow: 'hidden', ...SHADOW.card, borderWidth: 1, borderColor: COLORS.border },
-  etapeCardLivree:   { borderColor: COLORS.green + '40' },
-  etapeCardRetournee:{ borderColor: COLORS.red + '40' },
-  etapeOrder:        { width: 48, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center' },
-  etapeOrderText:    { color: '#fff', fontSize: 16, fontWeight: '800' },
-  etapeBody:         { flex: 1, padding: 14 },
-  etapeHeader:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  etapeRef:          { fontFamily: 'monospace', fontWeight: '700', color: COLORS.primary },
-  etapeMontant:      { fontSize: 13, fontWeight: '700', color: COLORS.amber, marginBottom: 8 },
-  clientRow:         { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 10 },
-  clientName:        { fontSize: 15, fontWeight: '600' },
-  clientAddr:        { fontSize: 12, color: COLORS.textMuted, lineHeight: 16 },
-  phoneBtn:          { width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.green + '20', justifyContent: 'center', alignItems: 'center' },
-  phoneBtnIcon:      { fontSize: 20 },
-  navBtn:            { backgroundColor: COLORS.primaryBg, paddingVertical: 10, borderRadius: RADIUS.md, alignItems: 'center', marginBottom: 12 },
-  navBtnText:        { color: COLORS.primary, fontWeight: '700' },
-  actionRow:         { flexDirection: 'row', gap: 10 },
-  btnLivrer:         { flex: 1, backgroundColor: COLORS.green, paddingVertical: 12, borderRadius: RADIUS.md, alignItems: 'center' },
-  btnLivrerText:     { color: '#fff', fontWeight: '700' },
-  btnRetour:         { flex: 1, backgroundColor: '#fee2e2', paddingVertical: 12, borderRadius: RADIUS.md, alignItems: 'center', borderWidth: 1, borderColor: COLORS.red + '30' },
-  btnRetourText:     { color: COLORS.red, fontWeight: '700' },
+  etapeCard:          { backgroundColor: COLORS.white, borderRadius: RADIUS.lg, marginBottom: 12, flexDirection: 'row', overflow: 'hidden', ...SHADOW.card, borderWidth: 1, borderColor: COLORS.border },
+  etapeCardLivree:    { borderColor: COLORS.green + '40' },
+  etapeCardRetournee: { borderColor: COLORS.red + '40' },
+  etapeOrder:         { width: 48, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center' },
+  etapeOrderText:     { color: '#fff', fontSize: 16, fontWeight: '800' },
+  etapeBody:          { flex: 1, padding: 14 },
+  etapeHeader:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  etapeRef:           { fontFamily: 'monospace', fontWeight: '700', color: COLORS.primary },
+  etapeMontant:       { fontSize: 13, fontWeight: '700', color: COLORS.amber, marginBottom: 8 },
+  clientRow:          { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 10 },
+  clientName:         { fontSize: 15, fontWeight: '600' },
+  clientAddr:         { fontSize: 12, color: COLORS.textMuted, lineHeight: 16 },
+  phoneBtn:           { width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.green + '20', justifyContent: 'center', alignItems: 'center' },
+  phoneBtnIcon:       { fontSize: 20 },
+  navBtn:             { backgroundColor: COLORS.primaryBg, paddingVertical: 10, borderRadius: RADIUS.md, alignItems: 'center', marginBottom: 12 },
+  navBtnText:         { color: COLORS.primary, fontWeight: '700' },
+  actionRow:          { flexDirection: 'row', gap: 10 },
+  btnLivrer:          { flex: 1, backgroundColor: COLORS.green, paddingVertical: 12, borderRadius: RADIUS.md, alignItems: 'center' },
+  btnLivrerText:      { color: '#fff', fontWeight: '700' },
+  btnRetour:          { flex: 1, backgroundColor: '#fee2e2', paddingVertical: 12, borderRadius: RADIUS.md, alignItems: 'center', borderWidth: 1, borderColor: COLORS.red + '30' },
+  btnRetourText:      { color: COLORS.red, fontWeight: '700' },
 
   statusBadge:     { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12 },
   statusBadgeText: { fontSize: 11, fontWeight: '700' },
 
-  modalOverlay:       { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
-  modalCard:          { backgroundColor: COLORS.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 },
-  modalTitle:         { fontSize: 18, fontWeight: '800', marginBottom: 4 },
-  modalSub:           { fontSize: 13, color: COLORS.textMuted, marginBottom: 16 },
-  modalHeader:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  modalCloseBtn:      { padding: 8 },
-  modalCloseText:     { fontSize: 18, color: '#94a3b8' },
-  modalSectionLabel:  { fontSize: 12, fontWeight: '700', color: COLORS.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 },
-  motifBtn:           { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: RADIUS.md, borderWidth: 1.5, borderColor: COLORS.border, marginBottom: 8 },
-  motifBtnActive:     { borderColor: COLORS.primary, backgroundColor: COLORS.primary + '08' },
-  motifRadio:         { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: COLORS.border },
-  motifRadioActive:   { borderColor: COLORS.primary },
-  motifLabel:         { fontSize: 14, color: COLORS.textSecondary },
-  motifLabelActive:   { color: COLORS.primary, fontWeight: '700' },
-  commentInput:       { borderWidth: 1.5, borderColor: COLORS.border, borderRadius: RADIUS.md, padding: 12, minHeight: 80, textAlignVertical: 'top', fontSize: 14 },
+  modalOverlay:      { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
+  modalCard:         { backgroundColor: COLORS.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 },
+  modalTitle:        { fontSize: 18, fontWeight: '800', marginBottom: 4 },
+  modalSub:          { fontSize: 13, color: COLORS.textMuted, marginBottom: 16 },
+  modalHeader:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  modalCloseBtn:     { padding: 8 },
+  modalCloseText:    { fontSize: 18, color: '#94a3b8' },
+  modalSectionLabel: { fontSize: 12, fontWeight: '700', color: COLORS.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 },
+  motifBtn:          { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: RADIUS.md, borderWidth: 1.5, borderColor: COLORS.border, marginBottom: 8 },
+  motifBtnActive:    { borderColor: COLORS.primary, backgroundColor: COLORS.primary + '08' },
+  motifRadio:        { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: COLORS.border },
+  motifRadioActive:  { borderColor: COLORS.primary },
+  motifLabel:        { fontSize: 14, color: COLORS.textSecondary },
+  motifLabelActive:  { color: COLORS.primary, fontWeight: '700' },
+  commentInput:      { borderWidth: 1.5, borderColor: COLORS.border, borderRadius: RADIUS.md, padding: 12, minHeight: 80, textAlignVertical: 'top', fontSize: 14 },
 
   photoPickBtn:   { backgroundColor: COLORS.primaryBg, borderRadius: RADIUS.lg, paddingVertical: 32, alignItems: 'center', borderWidth: 2, borderColor: COLORS.primary + '30', borderStyle: 'dashed', marginBottom: 12 },
   photoPickIcon:  { fontSize: 48, marginBottom: 8 },
@@ -810,13 +797,13 @@ const styles = StyleSheet.create({
   photoRetake:    { alignItems: 'center', marginBottom: 12 },
   photoRetakeText:{ color: COLORS.primary, fontWeight: '600' },
 
-  modalFooter:         { flexDirection: 'row', gap: 12, marginTop: 20 },
-  btnCancel:           { flex: 1, paddingVertical: 14, borderRadius: RADIUS.md, borderWidth: 1.5, borderColor: COLORS.border, alignItems: 'center' },
-  btnCancelText:       { color: COLORS.textMuted, fontWeight: '600' },
-  btnConfirm:          { flex: 1, backgroundColor: COLORS.green, paddingVertical: 14, borderRadius: RADIUS.md, alignItems: 'center' },
-  btnConfirmText:      { color: '#fff', fontWeight: '700' },
-  btnConfirmRetour:    { flex: 1, backgroundColor: COLORS.red, paddingVertical: 14, borderRadius: RADIUS.md, alignItems: 'center' },
-  btnConfirmRetourText:{ color: '#fff', fontWeight: '700' },
+  modalFooter:          { flexDirection: 'row', gap: 12, marginTop: 20 },
+  btnCancel:            { flex: 1, paddingVertical: 14, borderRadius: RADIUS.md, borderWidth: 1.5, borderColor: COLORS.border, alignItems: 'center' },
+  btnCancelText:        { color: COLORS.textMuted, fontWeight: '600' },
+  btnConfirm:           { flex: 1, backgroundColor: COLORS.green, paddingVertical: 14, borderRadius: RADIUS.md, alignItems: 'center' },
+  btnConfirmText:       { color: '#fff', fontWeight: '700' },
+  btnConfirmRetour:     { flex: 1, backgroundColor: COLORS.red, paddingVertical: 14, borderRadius: RADIUS.md, alignItems: 'center' },
+  btnConfirmRetourText: { color: '#fff', fontWeight: '700' },
 
   empty:      { alignItems: 'center', marginTop: 80 },
   emptyIcon:  { fontSize: 48, marginBottom: 12 },
