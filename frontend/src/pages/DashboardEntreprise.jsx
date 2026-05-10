@@ -121,13 +121,16 @@ export default function DashboardEntreprise() {
 
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <button
-  className="btn btn-secondary btn-sm"
-  onClick={() => navigate('/entreprise/rapport')}
->
-  <TrendingUp size={14} /> Rapport
-</button>
-            {/* ✅ NotificationBell déjà présent, champ is_read corrigé côté composant */}
-            <NotificationBell />
+              className="btn btn-secondary btn-sm"
+              onClick={() => navigate('/entreprise/rapport')}
+            >
+              <TrendingUp size={14} /> Rapport
+            </button>
+
+            {/* ✅ NotificationBell — cachée sur mobile (déjà dans la mobile-topbar) */}
+            <span className="hide-on-mobile" style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <NotificationBell />
+            </span>
           </div>
         </div>
 
@@ -153,21 +156,32 @@ export default function DashboardEntreprise() {
             <div style={{ fontSize: 22, fontWeight: 700 }}>
               {loading ? '—' : value}
             </div>
-            <div style={{ fontSize: 12, marginTop: 5 }}>
+            <div
+              className={`stat-change ${up === true ? 'up' : up === false ? 'down' : ''}`}
+              style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 4 }}
+            >
+              {up !== null && (
+                <ArrowUpRight size={12} style={{ transform: up ? 'none' : 'rotate(90deg)' }} />
+              )}
               {change}
             </div>
           </div>
         ))}
       </div>
 
-      {/* ─── Table commandes récentes ─── */}
-      <div className="card" style={{ marginTop: 30 }}>
+      {/* ─── Tableau commandes récentes ─── */}
+      <div className="card" style={{ marginBottom: 28 }}>
         <div style={{
           display: 'flex', justifyContent: 'space-between',
           alignItems: 'center', marginBottom: 22
         }}>
           <div>
-            <h3 style={{ fontSize: 18, fontWeight: 700 }}>Commandes récentes</h3>
+            <h3 style={{
+              fontFamily: 'var(--font-display)', fontSize: 18,
+              fontWeight: 700, color: 'var(--navy-900)'
+            }}>
+              Commandes récentes
+            </h3>
             <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 3 }}>
               {loading
                 ? 'Chargement...'
@@ -177,8 +191,8 @@ export default function DashboardEntreprise() {
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <Link to="/entreprise/commandes" className="btn btn-ghost btn-sm">
-  Voir tout <ArrowUpRight size={13} />
-</Link>
+              Voir tout <ArrowUpRight size={13} />
+            </Link>
             <button className="btn btn-ghost btn-sm" style={{ padding: '7px 9px' }}>
               <MoreHorizontal size={16} />
             </button>
@@ -206,7 +220,7 @@ export default function DashboardEntreprise() {
               </tr>
             </thead>
             <tbody>
-                {recentes.slice(0, 5).map(c => (
+              {recentes.slice(0, 5).map(c => (
                 <tr key={c.id}>
                   <td>
                     <span style={{

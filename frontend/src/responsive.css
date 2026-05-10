@@ -1,0 +1,590 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   RESPONSIVE.CSS — LogiSync
+   ───────────────────────────────────────────────────────────────────────────
+   Fichier de responsivité COMPLET — conçu pour s'appliquer SANS MODIFIER
+   le design, les couleurs, ni les composants existants.
+
+   Stratégie :
+   - Chargé APRÈS index.css → priorité CSS naturelle
+   - Cible les styles INLINE problématiques via [style*="..."] + !important
+   - Couvre toutes les pages : Dashboard, Colis, Tournees, SuiviGPS, Tarifs,
+     Livreurs, Commandes, Rapports, Notifications, Auth, etc.
+
+   Breakpoints :
+     • Mobile XS  : ≤ 380px
+     • Mobile     : ≤ 640px
+     • Tablette   : 641px – 1024px
+     • Desktop    : 1025px – 1599px
+     • Large      : ≥ 1600px
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GLOBAL — Empêche tout scroll horizontal indésirable
+   ═══════════════════════════════════════════════════════════════════════════ */
+html, body, #root {
+  overflow-x: hidden;
+  max-width: 100%;
+}
+
+/* Les éléments média sont fluides */
+img, svg, video, canvas {
+  max-width: 100%;
+}
+
+/* Les iframes (cartes OSM) restent fluides */
+iframe {
+  max-width: 100%;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UTILITAIRES — Affichage conditionnel mobile/desktop
+   ───────────────────────────────────────────────────────────────────────────
+   .hide-on-mobile  → caché sur mobile (≤640px)
+   .show-on-mobile  → caché sur desktop, visible sur mobile
+   ═══════════════════════════════════════════════════════════════════════════ */
+.hide-on-mobile { display: initial; }
+.show-on-mobile { display: none !important; }
+
+@media (max-width: 640px) {
+  .hide-on-mobile { display: none !important; }
+  .show-on-mobile { display: initial !important; }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   FIX DESKTOP — Bouton X de la sidebar doit être caché sur desktop
+   ───────────────────────────────────────────────────────────────────────────
+   Le bouton de fermeture mobile a className="mobile-only" mais aussi
+   un style inline { display: 'flex' }. Le style inline gagne contre la
+   classe CSS, donc on force avec !important sur desktop (>640px).
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (min-width: 641px) {
+  .sidebar .mobile-only {
+    display: none !important;
+  }
+
+  /* Sécurité : la mobile-topbar ne doit jamais s'afficher sur desktop/tablette */
+  .mobile-topbar {
+    display: none !important;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TABLETTE — 641px à 1024px
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 1024px) {
+
+  /* ── Grilles inline 4 colonnes → 2 colonnes (KPI cards) ────────────── */
+  [style*="grid-template-columns: repeat(4, 1fr)"],
+  [style*="grid-template-columns:repeat(4, 1fr)"],
+  [style*="grid-template-columns:repeat(4,1fr)"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* ── Layout sidebar 300px + 1fr → empile (Suivi GPS, etc.) ─────────── */
+  [style*="grid-template-columns: 300px 1fr"],
+  [style*="grid-template-columns:300px 1fr"],
+  [style*="grid-template-columns: 280px 1fr"],
+  [style*="grid-template-columns: 320px 1fr"],
+  [style*="grid-template-columns: 340px 1fr"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* ── Tableaux : autorise scroll horizontal ─────────────────────────── */
+  table {
+    min-width: 600px;
+  }
+
+  /* Cards qui contiennent un table : scroll horizontal */
+  .card[style*="padding: 0"] {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ── Modals : largeur adaptative ───────────────────────────────────── */
+  .modal {
+    max-width: calc(100vw - 32px) !important;
+    width: 100% !important;
+  }
+
+  /* ── Modals customs (sans classe .modal) ───────────────────────────── */
+  .modal-overlay > div[style*="max-width: 680"],
+  .modal-overlay > div[style*="maxWidth: 680"],
+  .modal-overlay > div[style*="max-width: 620"],
+  .modal-overlay > div[style*="max-width: 600"],
+  .modal-overlay > div[style*="max-width: 540"] {
+    max-width: calc(100vw - 32px) !important;
+  }
+
+  /* ── SuiviGPS layout principal ─────────────────────────────────────── */
+  .suivi-gps-layout {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MOBILE — ≤ 640px
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 640px) {
+
+  /* ─── GRILLES INLINE — adaptées pour mobile ──────────────────────── */
+
+  /* repeat(4, 1fr) → 2 colonnes */
+  [style*="grid-template-columns: repeat(4, 1fr)"],
+  [style*="grid-template-columns:repeat(4, 1fr)"],
+  [style*="grid-template-columns:repeat(4,1fr)"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+  }
+
+  /* repeat(3, 1fr) → 2 colonnes */
+  [style*="grid-template-columns: repeat(3, 1fr)"],
+  [style*="grid-template-columns:repeat(3, 1fr)"],
+  [style*="grid-template-columns:repeat(3,1fr)"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+
+  /* repeat(2, 1fr) ou 1fr 1fr → 1 colonne */
+  [style*="grid-template-columns: repeat(2, 1fr)"],
+  [style*="grid-template-columns:repeat(2, 1fr)"],
+  [style*="grid-template-columns: 1fr 1fr"]:not([style*="1fr 1fr 1fr"]),
+  [style*="grid-template-columns:1fr 1fr"]:not([style*="1fr 1fr 1fr"]) {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Layout sidebar 300px 1fr → empile */
+  [style*="grid-template-columns: 300px 1fr"],
+  [style*="grid-template-columns:300px 1fr"],
+  [style*="grid-template-columns: 280px 1fr"],
+  [style*="grid-template-columns: 320px 1fr"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Layout 2fr 1fr (Rapport) → empile */
+  [style*="grid-template-columns: 2fr 1fr"],
+  [style*="grid-template-columns:2fr 1fr"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Grilles auto-fill / auto-fit : on baisse le minmax */
+  [style*="minmax(300px"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  [style*="minmax(210px"],
+  [style*="minmax(160px"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+  }
+
+
+  /* ═══════════════════════════════════════════════════════════════════
+     FIX CRITIQUE — TARIFS : mise en page mobile
+     ───────────────────────────────────────────────────────────────────
+     La page Tarifs utilise gridTemplateColumns: '1fr 1fr 1fr 1fr auto'
+     pour son en-tête de tableau ET pour chaque TarifCard.
+
+     Sur mobile :
+     - L'EN-TÊTE de colonnes (Gouvernorat/Poids/Prix/Délai) est CACHÉ
+       → il sert juste de label pour la grille desktop, inutile sur mobile.
+     - Chaque TarifCard passe en mode "card" empilée verticalement avec
+       gap propre, et le bouton supprimer en absolu en haut-droite.
+     ═══════════════════════════════════════════════════════════════════ */
+
+  /* En-tête de colonnes Tarifs : caché sur mobile */
+  /* Cible précise : padding 8px 18px + background var(--bg3) — c'est UNIQUEMENT l'en-tête */
+  /* (les TarifCards ont padding 13px 18px et transition: 'background...') */
+  .card > div > div[style*="grid-template-columns: 1fr 1fr 1fr 1fr auto"][style*="padding: 8px 18px"],
+  .card > div > div[style*="grid-template-columns:1fr 1fr 1fr 1fr auto"][style*="padding: 8px 18px"],
+  .card > div > div[style*="grid-template-columns: 1fr 1fr 1fr 1fr auto"][style*="padding:8px 18px"] {
+    display: none !important;
+  }
+
+  /* TarifCard : layout vertical structuré */
+  /* Cible précise : padding 13px 18px (cards) — distingue des en-têtes (8px 18px) */
+  div[style*="grid-template-columns: 1fr 1fr 1fr 1fr auto"][style*="padding: 13px 18px"],
+  div[style*="grid-template-columns:1fr 1fr 1fr 1fr auto"][style*="padding: 13px 18px"],
+  div[style*="grid-template-columns: 1fr 1fr 1fr 1fr auto"][style*="padding:13px 18px"] {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 6px !important;
+    padding: 14px 16px !important;
+    position: relative !important;
+  }
+
+  /* Le bouton de suppression (dernier enfant) : en absolu en haut-droite */
+  div[style*="grid-template-columns: 1fr 1fr 1fr 1fr auto"][style*="padding: 13px 18px"] > button:last-child,
+  div[style*="grid-template-columns:1fr 1fr 1fr 1fr auto"][style*="padding: 13px 18px"] > button:last-child,
+  div[style*="grid-template-columns: 1fr 1fr 1fr 1fr auto"][style*="padding:13px 18px"] > button:last-child {
+    position: absolute !important;
+    top: 12px !important;
+    right: 12px !important;
+  }
+
+  /* Form grid des tarifs (auto-fit minmax 140) → 1 colonne sur mobile */
+  [style*="minmax(140px"] {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  /* ─────────────────────────────────────────────────────────────────
+     FOOTER RÉCAP TARIFS — empile proprement sur mobile
+     ───────────────────────────────────────────────────────────────
+     Le footer "X gouvernorats couverts · Prix min: 7 · Prix max: 8"
+     est un flex avec gap: 20, sans wrap. Sur mobile, il se compresse
+     mal. On le passe en colonne et on cache les séparateurs "·".
+     ───────────────────────────────────────────────────────────── */
+
+  /* Le footer récap : empile en colonne, gap réduit */
+  div[style*="border-top: 1px solid var(--border)"][style*="background: var(--bg3)"][style*="display: flex"][style*="gap: 20"],
+  div[style*="border-top:1px solid var(--border)"][style*="background:var(--bg3)"][style*="display:flex"][style*="gap:20"] {
+    flex-direction: column !important;
+    gap: 4px !important;
+    padding: 12px 16px !important;
+    align-items: flex-start !important;
+  }
+
+  /* Cache les séparateurs "·" qui sont juste des <span>· seuls */
+  div[style*="border-top: 1px solid var(--border)"][style*="background: var(--bg3)"][style*="display: flex"][style*="gap: 20"] > span:nth-child(2),
+  div[style*="border-top: 1px solid var(--border)"][style*="background: var(--bg3)"][style*="display: flex"][style*="gap: 20"] > span:nth-child(4) {
+    display: none !important;
+  }
+
+
+  /* ─── LARGEURS / MAXWIDTH FIXES — passent en fluide ─────────────── */
+
+  /* Profile.jsx maxWidth: 660 */
+  [style*="max-width: 660"],
+  [style*="maxWidth: 660"] {
+    max-width: 100% !important;
+    margin: 16px auto !important;
+    padding: 0 12px !important;
+  }
+
+  /* Suivi.jsx maxWidth: 700 */
+  [style*="max-width: 700"],
+  [style*="maxWidth: 700"] {
+    max-width: 100% !important;
+  }
+
+  /* Notification panel width: 340px */
+  [style*="width: 340px"] {
+    width: calc(100vw - 24px) !important;
+    max-width: calc(100vw - 24px) !important;
+    right: 12px !important;
+  }
+
+
+  /* ─── PAGE HEADERS — autorise wrap ───────────────────────────── */
+  .page-header {
+    flex-wrap: wrap;
+  }
+
+
+  /* ─── TABLEAUX — scroll horizontal automatique ───────────────────── */
+  table {
+    min-width: 540px;
+  }
+
+  /* Container card sans padding qui contient un tableau */
+  .card[style*="padding: 0"] {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+
+  /* ─── CHARTS (recharts) — hauteur min lisible ────────────────────── */
+  .recharts-responsive-container {
+    min-height: 220px;
+  }
+
+
+  /* ─── MODALS avec styles inline (CommandeDetailModal, etc.) ───── */
+  .modal-overlay > div[style*="border-radius: 20"]:not(.modal),
+  .modal-overlay > div[style*="borderRadius:20"]:not(.modal),
+  .modal-overlay > div[style*="border-radius:20"]:not(.modal) {
+    border-radius: 16px 16px 0 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 92vh !important;
+    margin: 0 !important;
+    margin-top: auto !important;
+  }
+
+  /* L'overlay positionne en bottom sheet */
+  .modal-overlay {
+    align-items: flex-end !important;
+    padding: 0 !important;
+  }
+
+  /* Padding interne des modals avec gros padding inline */
+  .modal-overlay div[style*="padding: 24px 28px"],
+  .modal-overlay div[style*="padding:24px 28px"] {
+    padding: 18px 16px !important;
+  }
+
+
+  /* ─── KPI compactes : tailles réduites ─────────────────────────── */
+  .card[style*="padding: 14px 18px"],
+  .card[style*="padding:14px 18px"],
+  .card[style*="padding: 18px 20px"],
+  .card[style*="padding:18px 20px"] {
+    padding: 12px 14px !important;
+  }
+
+
+  /* ─── DETAIL COMMANDE : grilles internes 1fr 1fr → 1 colonne ──── */
+  div[style*="grid-template-columns: 1fr 1fr"][style*="gap: 0"] {
+    grid-template-columns: 1fr !important;
+  }
+
+
+  /* ─── INPUTS DATE / TIME — pas tronqués ────────────────────────── */
+  input[type="date"],
+  input[type="datetime-local"],
+  input[type="time"] {
+    min-width: 0;
+    width: 100%;
+  }
+
+
+  /* ─── BOUTONS GHOST DANS TABLEAUX — touch friendly ────────────── */
+  td .btn-sm,
+  td .btn-ghost {
+    padding: 5px 8px;
+    font-size: 11px;
+    min-height: auto;
+  }
+
+
+  /* ─── TITRES — coupure de mots si nécessaire ──────────────────── */
+  h1, h2, h3, h4, h5 {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
+
+
+  /* ─── SIDEBAR overlay — limite largeur sur petit écran ───────── */
+  .sidebar.open {
+    width: min(85vw, 300px) !important;
+  }
+
+
+  /* ═══════════════════════════════════════════════════════════════════
+     FIX CRITIQUE — AUTH PAGES (Login, Register, ForgotPassword, etc.)
+     ───────────────────────────────────────────────────────────────────
+     Le fichier index.css contient une règle responsive qui cache le
+     premier enfant de .auth-page (panneau branding du Login).
+     MAIS la page Register a une structure différente : elle n'a qu'UN
+     SEUL enfant direct (.auth-box), donc cette règle cache toute la
+     page sur mobile. On corrige ici en gardant .auth-box toujours visible.
+     ═══════════════════════════════════════════════════════════════════ */
+
+  /* La page auth-page : permet le scroll naturel */
+  .auth-page {
+    min-height: 100vh;
+    height: auto !important;
+    flex-direction: column !important;
+    overflow-y: auto !important;
+    display: flex !important;
+  }
+
+  /* GARANTIE ABSOLUE : .auth-box est TOUJOURS visible, peu importe sa position */
+  .auth-page .auth-box,
+  .auth-page > .auth-box,
+  .auth-page > div.auth-box {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    position: relative !important;
+    z-index: 10 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 28px 20px 40px !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    min-height: 100vh !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: var(--bg2) !important;
+  }
+
+  /* Si .auth-box est wrappée dans un autre div (Login), ce wrapper est visible */
+  .auth-page > div:has(> .auth-box) {
+    display: flex !important;
+    visibility: visible !important;
+    width: 100% !important;
+    flex: 1 !important;
+    min-height: 100vh !important;
+    padding: 0 !important;
+    align-items: stretch !important;
+  }
+
+  /* On cache le panneau branding du Login : c'est le 1er enfant qui ne contient PAS .auth-box */
+  /* Fallback robuste pour navigateurs sans :has() : cible les divs vides ou décoratifs */
+  .auth-page > div:first-child:not(.auth-box):not(:has(.auth-box)) {
+    display: none !important;
+  }
+
+
+  /* ─── TOURNEES — drag handles touch friendly ────────────────── */
+  [style*="cursor: grab"],
+  [style*="cursor:grab"] {
+    touch-action: none;
+  }
+
+
+  /* ─── COMMANDESENTREPRISE — Filtres scrollables ─────────────── */
+  div[style*="overflow-x"][style*="display: flex"] {
+    -webkit-overflow-scrolling: touch;
+  }
+
+
+  /* ─── EVITER LES OVERFLOW HORIZONTAUX SUR MAIN ────────────── */
+  .main-content {
+    overflow-x: hidden;
+  }
+
+
+  /* ─── REGISTER / LOGIN forms grids ─────────────────────────── */
+  .form-row {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PETITS MOBILES — ≤ 380px
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 380px) {
+
+  /* Stats grid + KPI : 1 colonne sur très petit écran */
+  .stats-grid,
+  [style*="grid-template-columns: repeat(4, 1fr)"],
+  [style*="grid-template-columns:repeat(4, 1fr)"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* repeat(3, 1fr) → 1 colonne */
+  [style*="grid-template-columns: repeat(3, 1fr)"],
+  [style*="grid-template-columns:repeat(3, 1fr)"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Auto-fit minmax : aussi 1 colonne */
+  [style*="minmax(210px"],
+  [style*="minmax(160px"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  .main-content {
+    padding: 12px !important;
+  }
+
+  .page-header h2 { font-size: 18px; }
+  .page-header p  { font-size: 12px; }
+
+  .stat-value { font-size: 20px !important; }
+
+  .btn        { padding: 8px 12px; font-size: 12px; }
+  .btn-sm     { padding: 5px 9px; font-size: 11px; }
+
+  /* Auth box ajustée */
+  .auth-box {
+    padding: 24px 16px 32px !important;
+  }
+
+  /* Modal padding réduit */
+  .modal {
+    padding: 16px 14px 24px !important;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GRANDS ÉCRANS — ≥ 1600px
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (min-width: 1600px) {
+  .main-content {
+    padding: 40px 60px;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GRANDS ÉCRANS XL — ≥ 1920px
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (min-width: 1920px) {
+  .main-content {
+    padding: 48px 80px;
+    max-width: 1800px;
+    margin: 0 auto;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PAYSAGE MOBILE — hauteur ≤ 500px
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (max-height: 500px) and (orientation: landscape) and (max-width: 900px) {
+  .sidebar.open {
+    overflow-y: auto;
+  }
+
+  .modal {
+    max-height: 95vh !important;
+  }
+
+  .auth-box {
+    padding: 20px 28px !important;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   IMPRESSION
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media print {
+  .sidebar,
+  .mobile-topbar,
+  .btn,
+  .modal-overlay,
+  .sidebar-overlay {
+    display: none !important;
+  }
+
+  .main-content {
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+
+  .app-layout {
+    height: auto !important;
+    overflow: visible !important;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ACCESSIBILITÉ — réduit les animations si demandé
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

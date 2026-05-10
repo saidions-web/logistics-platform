@@ -102,9 +102,11 @@ export default function DashboardVendeur() {
             <a href="/colis" className="btn btn-primary btn-sm">
               <Package size={14} /> Nouvelle commande
             </a>
-               
-            {/* ✅ Cloche notifications ajoutée */}
-            <NotificationBell />
+
+            {/* ✅ Cloche notifications — cachée sur mobile (déjà présente dans la mobile-topbar) */}
+            <span className="hide-on-mobile" style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <NotificationBell />
+            </span>
           </div>
         </div>
         <div style={{ height: 1, background: 'var(--border)', marginTop: 24 }} />

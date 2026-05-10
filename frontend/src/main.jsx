@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
+import './responsive.css'   // ✅ Responsivité globale (chargé APRÈS index.css pour priorité CSS)
 import { BrowserRouter } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext' // ✅ IMPORTANT
 
