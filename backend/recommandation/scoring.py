@@ -21,24 +21,16 @@ def normaliser(val, min_val, max_val, inverse=False):
 
 
 def get_stats(entreprise, gouvernorat=None):
-    """
-    Calcule le taux de réussite et le délai moyen.
-    ✅ CORRECTION : filtre par gouvernorat si fourni
-    pour un scoring plus pertinent géographiquement.
-    """
     commandes = Commande.objects.filter(
         recommandation__entreprise_choisie=entreprise
     )
 
-    # ✅ Filtrer par gouvernorat pour un taux localisé
     if gouvernorat:
         commandes = commandes.filter(dest_gouvernorat=gouvernorat)
 
     total = commandes.count()
 
     if total == 0:
-        # Pas d'historique dans ce gouvernorat →
-        # on retombe sur le taux global
         if gouvernorat:
             return get_stats(entreprise, gouvernorat=None)
         return {'taux': 0.0, 'delai': 3}
@@ -57,10 +49,6 @@ def get_stats(entreprise, gouvernorat=None):
 
 
 def get_eligibles(commande):
-    """
-    Retourne les entreprises éligibles pour une commande donnée.
-    ✅ CORRECTION : comparaison de liste correcte (plus de str())
-    """
     gouvernorat = (commande.dest_gouvernorat or '').strip()
     poids = float(commande.poids_total or 0)
 
@@ -74,13 +62,10 @@ def get_eligibles(commande):
     for e in entreprises:
         zones = e.zones_couverture or []
 
-        # ✅ CORRECTION : comparaison de liste directe
-        # plus de str(zones).lower() qui était fragile
         if isinstance(zones, list):
             if gouvernorat not in zones:
                 continue
         elif isinstance(zones, str):
-            # Sécurité si le champ JSON est mal stocké
             if gouvernorat.lower() not in zones.lower():
                 continue
         else:
@@ -109,7 +94,6 @@ def calculer_scores(commande):
     data = []
 
     for e, tarif in eligibles:
-        # ✅ CORRECTION : stats par gouvernorat
         stats = get_stats(e, gouvernorat=gouvernorat)
         data.append({
             'entreprise':  e,
@@ -183,6 +167,12 @@ def generer_recommandation(commande):
 
     reco.scores_details = scores_json
     reco.save()
+
+    # ✅ Synchroniser commande.entreprise avec entreprise_choisie
+    if reco.entreprise_choisie:
+        commande.entreprise = reco.entreprise_choisie
+        commande.prix_livraison = commande.calcul_prix_livraison()
+        commande.save(update_fields=['entreprise', 'prix_livraison'])
 
     if best:
         Notification.objects.create(

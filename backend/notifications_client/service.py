@@ -1,13 +1,9 @@
 import logging
 from django.conf import settings
 from .models import NotificationClient, StatutEnvoi, CanalNotification
-
+// Service de notification client pour les événements de commande (ex: en_transit).
 logger = logging.getLogger(__name__)
 
-
-def _lien_suivi(commande):
-    base = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
-    return f"{base}/suivi?ref={commande.reference}"
 
 
 def _normaliser_tel(telephone):
@@ -21,7 +17,6 @@ def _normaliser_tel(telephone):
     if tel.startswith('0'):
         return '+216' + tel[1:]
     return '+216' + tel
-
 
 def _get_canal(commande):
     return 'sms'
@@ -44,7 +39,6 @@ def _envoyer_sms(commande, evenement, lien):
         f"Bonjour {commande.dest_prenom}, "
         f"votre commande {commande.reference} de {nom_boutique} "
         f"est en cours de livraison. "
-        f"Suivi : {lien}"
     )
 
     try:

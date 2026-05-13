@@ -113,7 +113,7 @@ export const entrepriseApi = {
 
 
 
-  affectationAuto: () => api.post('/entreprise/affectation/auto/'),
+  affectationAuto: () => api.post('/tournees/affectation/auto/'),
   getMesTournees:  () => api.get('/entreprise/livreur/tournees/'),
 };
 // ====================== TOURNEES ======================

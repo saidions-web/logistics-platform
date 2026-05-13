@@ -10,9 +10,7 @@ logger = logging.getLogger(__name__)
 # HELPERS
 # ─────────────────────────────────────────
 
-def _lien_suivi(commande):
-    base = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
-    return f"{base}/suivi?ref={commande.reference}"
+
 
 
 def _normaliser_tel(telephone):
@@ -62,7 +60,7 @@ def _envoyer_sms(commande, evenement):
         f"Bonjour {commande.dest_prenom}, "
         f"votre commande {commande.reference} de {boutique} "
         f"est en cours de livraison. "
-        f"Suivi : {lien}"
+        
     )
 
     try:

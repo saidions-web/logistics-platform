@@ -1,22 +1,9 @@
-/**
- * frontend/src/pages/entreprise/SuiviGPS.jsx — VERSION CORRIGÉE
- *
- * CORRECTIONS :
- *  1. isOnline() : gère correctement derniere_maj null/undefined
- *  2. EntrepriseLivreursPositionsView renvoie derniere_maj (isostring),
- *     pas derniere_position — le frontend utilise déjà la bonne clé.
- *  3. Rafraîchissement réduit à 10s (était 15s) pour correspondre à
- *     l'intervalle d'envoi mobile (15s) + latence réseau.
- *  4. Affichage "En ligne" plus précis : seuil 3 min au lieu de 2 min
- *     pour tolérer les retards réseau mobile.
- */
-
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { MapPin, RefreshCw, Users, Truck, Phone, Route, Navigation } from 'lucide-react'
 import { entrepriseApi } from '../../services/api'
 
-const REFRESH_INTERVAL_MS = 10_000            // ✅ 10s au lieu de 15s
-const ONLINE_THRESHOLD_MS = 3 * 60 * 1000    // ✅ 3 min au lieu de 2 min (tolérance réseau)
+const REFRESH_INTERVAL_MS = 10_000            //intervalle de rafraîchissement des données
+const ONLINE_THRESHOLD_MS = 3 * 60 * 1000   //temps maximum pour considérer un livreur "en ligne"
 
 const STATUT_BADGE = {
   disponible: 'badge-success',
@@ -29,12 +16,7 @@ const STATUT_LABEL = {
   inactif:    'Inactif',
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-/**
- * ✅ FIX : Vérifie si le livreur est "en ligne" (position récente).
- * Gère les cas null/undefined/string vide pour derniere_maj.
- */
+//Vérifie si la dernière position GPS est récente (moins de 3 minutes) pour considérer le livreur "en ligne"
 function isOnline(livreur) {
   if (!livreur.latitude || !livreur.longitude) return false
   if (!livreur.derniere_maj) return false
@@ -42,7 +24,7 @@ function isOnline(livreur) {
   if (isNaN(lastSeen.getTime())) return false        // ✅ Date invalide = offline
   return (Date.now() - lastSeen.getTime()) < ONLINE_THRESHOLD_MS
 }
-
+// Formate une date ISO en heure locale "HH:mm"
 function formatTime(isoString) {
   if (!isoString) return null
   const d = new Date(isoString)
@@ -50,10 +32,7 @@ function formatTime(isoString) {
   return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 }
 
-/**
- * ✅ FIX : Affiche l'ancienneté de la position de façon lisible.
- * Ex: "il y a 45s", "il y a 2 min"
- */
+// Formate une date ISO en âge relatif (ex: "il y a 5 min")
 function formatAge(isoString) {
   if (!isoString) return null
   const d = new Date(isoString)
@@ -64,12 +43,11 @@ function formatAge(isoString) {
   return `il y a ${Math.floor(diffSec / 3600)}h`
 }
 
-// ── Carte OpenStreetMap ──────────────────────────────────────────────────────
-
+// ── Composant carte (iframe OpenStreetMap) ─────────────────────────────────
 function MapView({ livreurs, selected }) {
   const livreur = selected ? livreurs.find(l => l.id === selected) : null
   const livreursAvecGPS = livreurs.filter(l => l.latitude && l.longitude)
-
+// Génère l'URL de l'iframe OpenStreetMap en fonction des positions GPS disponibles
   const getMapSrc = () => {
     if (livreur?.latitude && livreur?.longitude) {
       const lat = parseFloat(livreur.latitude)
@@ -97,14 +75,17 @@ function MapView({ livreurs, selected }) {
 
     return 'https://www.openstreetmap.org/export/embed.html?bbox=7.5,30.0,11.5,37.5&layer=mapnik'
   }
-
+// Ouvre la position du livreur sélectionné dans OpenStreetMap dans un nouvel onglet
   const openInOSM = (l) => {
     window.open(
       `https://www.openstreetmap.org/?mlat=${l.latitude}&mlon=${l.longitude}#map=16/${l.latitude}/${l.longitude}`,
       '_blank'
     )
   }
-
+// Affiche la carte avec les positions GPS des livreurs, 
+// ainsi qu'une liste des livreurs actifs en bas de la carte.
+//  Permet de cliquer sur un livreur pour centrer la carte sur sa position
+//  et ouvrir dans OSM.
   return (
     <div style={{ position: 'relative', flex: 1, background: '#e8f0f8', borderRadius: 12, overflow: 'hidden', minHeight: 420 }}>
       <iframe
@@ -199,11 +180,13 @@ function MapView({ livreurs, selected }) {
   )
 }
 
-// ── Carte livreur (panneau latéral) ─────────────────────────────────────────
-
+// ── Carte de chaque livreur dans la liste latérale ───────────────────────────
 function LivreurCard({ livreur, selected, onClick }) {
   const online = isOnline(livreur)
   const hasGPS = Boolean(livreur.latitude && livreur.longitude)
+// Affiche une carte de résumé pour chaque livreur dans la liste, 
+// avec son statut, téléphone, véhicule, tournée en cours, et 
+// un indicateur de statut GPS (actif/inactif/aucun)
 
   return (
     <div
@@ -264,7 +247,6 @@ function LivreurCard({ livreur, selected, onClick }) {
             }
           </span>
         </div>
-
         {hasGPS && (
           <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'monospace' }}>
             {parseFloat(livreur.latitude).toFixed(5)}, {parseFloat(livreur.longitude).toFixed(5)}
@@ -276,7 +258,7 @@ function LivreurCard({ livreur, selected, onClick }) {
 }
 
 // ── Page principale ───────────────────────────────────────────────────────────
-
+// Affiche le suivi GPS des livreurs avec une carte et une liste latérale.
 export default function SuiviGPS() {
   const [livreurs, setLivreurs]         = useState([])
   const [loading, setLoading]           = useState(true)
@@ -296,7 +278,7 @@ export default function SuiviGPS() {
       setLoading(false)
     }
   }, [])
-
+// Charge les données à l'ouverture de la page et met en place un intervalle de rafraîchissement
   useEffect(() => {
     load()
     intervalRef.current = setInterval(load, REFRESH_INTERVAL_MS)
@@ -307,11 +289,11 @@ export default function SuiviGPS() {
   const disponibles = livreurs.filter(l => l.statut === 'disponible')
   const avecGPS     = livreurs.filter(l => l.latitude && l.longitude)
   const enLigne     = livreurs.filter(l => isOnline(l))
-
+// Applique le filtre de statut sélectionné sur la liste des livreurs
   const livreursFiltres = filtreStatut
     ? livreurs.filter(l => l.statut === filtreStatut)
     : livreurs
-
+// Affiche la page de suivi GPS avec un header, des KPI, des filtres, une liste de livreurs, et une carte
   return (
     <div className="animate-fade-up" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
 

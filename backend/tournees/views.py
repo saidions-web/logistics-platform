@@ -253,15 +253,25 @@ class AffectationAutoView(APIView):
                 status=403
             )
 
+        from recommandation.models import Recommandation
+        from django.db.models import Q
+
+        # ✅ Récupère les commandes assignées à cette entreprise
+        # via recommandation OU via le champ direct entreprise
+        reco_commande_ids = Recommandation.objects.filter(
+            entreprise_choisie=entreprise
+        ).values_list('commande_id', flat=True)
+
         commandes = list(Commande.objects.filter(
-            entreprise=entreprise,
             statut=StatutCommande.EN_ATTENTE,
+        ).filter(
+            Q(entreprise=entreprise) | Q(id__in=reco_commande_ids)
         ).exclude(
             affectations__tournee__statut__in=[
                 StatutTournee.PLANIFIEE,
                 StatutTournee.EN_COURS,
             ]
-        ))
+        ).distinct())
 
         if not commandes:
             return Response({
@@ -335,10 +345,10 @@ class AffectationAutoView(APIView):
                         ordre=ordre,
                     )
 
-                    # ✅ Affectation auto = entreprise
-                    # → prise_charge (pas en_transit)
                     ancien     = cmd.statut
                     cmd.statut = StatutCommande.PRISE_CHARGE
+                    # ✅ S'assurer que entreprise est bien définie
+                    cmd.entreprise = entreprise
                     cmd.save()
 
                     HistoriqueStatut.objects.create(
@@ -366,7 +376,6 @@ class AffectationAutoView(APIView):
             'affectees':   affectees,
             'assignments': assignments[:10],
         })
-
 
 # ─────────────────────────────────────────
 # ENTREPRISE — Commandes d'une tournée
