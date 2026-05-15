@@ -9,13 +9,18 @@ import Constants from 'expo-constants';
 // Sur émulateur iOS      → localhost fonctionne
 // ─────────────────────────────────────────────────────────────
 
+const rawUrl = Constants.expoConfig?.extra?.apiUrl;
+
+// ✅ Vérifie que la valeur est une vraie URL (pas vide, pas null, pas undefined)
+// Une chaîne vide "" est falsy en JS mais Constants peut retourner autre chose
 const API_URL =
-  Constants.expoConfig?.extra?.apiUrl ||
-  'http://192.168.1.53:8000/api';
+  rawUrl && typeof rawUrl === 'string' && rawUrl.startsWith('http')
+    ? rawUrl
+    : 'http://192.168.1.7:8000/api';
 
 export const config = {
   apiUrl: API_URL,
-  timeout: 15000,  // 15s au lieu de 10s pour les connexions lentes
+  timeout: 15000,
 };
 
 export default config;

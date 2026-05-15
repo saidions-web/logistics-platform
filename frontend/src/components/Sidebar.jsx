@@ -63,8 +63,45 @@ export default function Sidebar() {
   const sidebarContent = (
     <>
       <div className="sidebar-logo">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h1>Logi<span>Sync</span></h1>
+        <div
+  style={{
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    width: '100%',
+  }}
+>
+  <div
+    style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 12,
+    }}
+  >
+    <img
+      src="/logoo.png"
+      alt="Logo"
+      style={{
+        width: 56,
+        height: 56,
+        objectFit: 'contain',
+      }}
+    />
+
+    <h1
+      style={{
+        margin: 0,
+        fontSize: 30,
+        fontWeight: 700,
+        color: '#fff',
+        fontFamily: 'var(--font-display)',
+        letterSpacing: '-0.5px',
+      }}
+    >
+      Logi<span style={{ color: '#C9A84C' }}>Sync</span>
+    </h1>
+  </div>
           {/* Close button — mobile only */}
           <button
             onClick={() => setMobileOpen(false)}
@@ -83,7 +120,7 @@ export default function Sidebar() {
             <X size={16} />
           </button>
         </div>
-        <p>{user?.role === 'entreprise' ? 'Espace entreprise' : 'Gestion livraisons'}</p>
+        <p ><center>{user?.role === 'entreprise' ? 'Espace entreprise' : 'Gestion livraisons'}</center></p>
       </div>
 
       <nav className="nav-section">

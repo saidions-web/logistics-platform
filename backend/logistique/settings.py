@@ -5,7 +5,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = config('SECRET_KEY')
 DEBUG = config('DEBUG', default=False, cast=bool)
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '192.168.1.53']
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '192.168.1.53', '192.168.1.7']
 
 # Apps
 INSTALLED_APPS = [

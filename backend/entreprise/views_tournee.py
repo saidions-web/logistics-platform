@@ -52,47 +52,61 @@ class LivreurTourneeStatutView(APIView):
     }
  
     def patch(self, request, pk):
-
         if request.user.role != 'livreur':
-
             return Response({'detail': 'Accès réservé aux livreurs.'}, status=403)
- 
+
         livreur = getattr(request.user, 'livreur_profile', None)
-
         if not livreur:
-
             return Response({'detail': 'Profil livreur introuvable.'}, status=404)
- 
+
         tournee = get_object_or_404(Tournee, pk=pk, livreur=livreur)
- 
+
         nouveau_statut = request.data.get('statut')
-
         if not nouveau_statut:
-
             return Response({'detail': 'Le champ "statut" est requis.'}, status=400)
- 
+
         transitions = self.TRANSITIONS_AUTORISEES.get(tournee.statut, [])
-
         if nouveau_statut not in transitions:
-
             return Response(
-
                 {'detail': f'Transition impossible : {tournee.statut} → {nouveau_statut}. Autorisées : {transitions}'},
-
                 status=400,
-
             )
- 
-        ancien_statut  = tournee.statut
 
+        # ✅ VÉRIFICATION : avant de terminer, toutes les commandes doivent
+        # être livrées ou retournées
+        if nouveau_statut == StatutTournee.TERMINEE:
+            from commandes.models import StatutCommande
+
+            statuts_finals = [StatutCommande.LIVREE, StatutCommande.RETOURNEE]
+
+            commandes_en_cours = tournee.affectations.exclude(
+                commande__statut__in=statuts_finals
+            ).select_related('commande')
+
+            if commandes_en_cours.exists():
+                refs = ', '.join(
+                    a.commande.reference for a in commandes_en_cours
+                )
+                nb = commandes_en_cours.count()
+                return Response(
+                    {
+                        'detail': (
+                            f'Impossible de terminer la tournée : '
+                            f'{nb} commande(s) non traitée(s) — {refs}. '
+                            f'Chaque commande doit être livrée ou retournée.'
+                        )
+                    },
+                    status=400
+                )
+
+        ancien_statut  = tournee.statut
         tournee.statut = nouveau_statut
- 
+
         if nouveau_statut == StatutTournee.EN_COURS:
             tournee.heure_depart_reelle = timezone.now()
             livreur.statut = StatutLivreur.EN_TOURNEE
             livreur.save(update_fields=['statut'])
 
-            # ✅ AJOUT : mise à jour des commandes en EN_TRANSIT
             from commandes.models import Commande, StatutCommande, HistoriqueStatut
             for affectation in tournee.affectations.select_related('commande').all():
                 commande = affectation.commande
@@ -110,43 +124,28 @@ class LivreurTourneeStatutView(APIView):
                         commentaire=f"Tournée {tournee.reference} démarrée par le livreur",
                     )
 
- 
         elif nouveau_statut == StatutTournee.TERMINEE:
-
             tournee.heure_fin_reelle = timezone.now()
 
             autres_en_cours = Tournee.objects.filter(
-
                 livreur=livreur,
-
                 statut=StatutTournee.EN_COURS,
-
             ).exclude(pk=pk).exists()
 
             if not autres_en_cours:
-
                 livreur.statut = StatutLivreur.DISPONIBLE
-
                 livreur.save(update_fields=['statut'])
- 
+
         tournee.save()
- 
+
         return Response({
-
             'id':            tournee.id,
-
             'reference':     tournee.reference,
-
             'statut':        tournee.statut,
-
             'ancien_statut': ancien_statut,
-
             'heure_depart':  tournee.heure_depart_reelle.isoformat() if tournee.heure_depart_reelle else None,
-
             'heure_fin':     tournee.heure_fin_reelle.isoformat()    if tournee.heure_fin_reelle    else None,
-
             'detail':        f'Tournée passée de "{ancien_statut}" à "{nouveau_statut}".',
-
         })
  
  

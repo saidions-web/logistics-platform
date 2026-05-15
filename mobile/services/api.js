@@ -1,6 +1,6 @@
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
-import config from '../config';
+import { config } from '../config';
 
 // Callback injecté depuis l'app pour gérer la déconnexion
 let onUnauthorized = null;
@@ -8,17 +8,34 @@ export const setUnauthorizedHandler = (handler) => {
   onUnauthorized = handler;
 };
 
+// ✅ Log au démarrage pour confirmer l'URL utilisée
+console.log('[API] baseURL configurée:', config.apiUrl);
+
 const api = axios.create({
   baseURL: config.apiUrl,
   timeout: config.timeout,
+  headers: {
+    'Content-Type': 'application/json',
+  },
 });
 
-api.interceptors.request.use(async (config) => {
-  const token = await SecureStore.getItemAsync('access_token');
-  if (token) {
-    config.headers = { ...config.headers, Authorization: `Bearer ${token}` };
+api.interceptors.request.use(async (reqConfig) => {
+  try {
+    const token = await SecureStore.getItemAsync('access_token');
+    if (token) {
+      reqConfig.headers = {
+        ...reqConfig.headers,
+        Authorization: `Bearer ${token}`,
+      };
+    }
+  } catch (e) {
+    console.warn('[API] Impossible de lire le token:', e.message);
   }
-  return config;
+
+  // ✅ Log chaque requête pour debug (à retirer en production)
+  console.log(`[API] ${reqConfig.method?.toUpperCase()} ${reqConfig.baseURL}${reqConfig.url}`);
+
+  return reqConfig;
 });
 
 let isRefreshing = false;
@@ -37,6 +54,13 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
     const status = error.response?.status;
+
+    // ✅ Log détaillé des erreurs réseau
+    if (!error.response) {
+      console.error('[API] Erreur réseau — pas de réponse du serveur');
+      console.error('[API] URL tentée:', error.config?.baseURL + error.config?.url);
+      console.error('[API] Vérifiez que Django tourne sur 0.0.0.0:8000');
+    }
 
     if (status === 401 && !originalRequest._retry) {
       if (isRefreshing) {
@@ -57,7 +81,8 @@ api.interceptors.response.use(
 
         const res = await axios.post(
           `${config.apiUrl}/auth/token/refresh/`,
-          { refresh }
+          { refresh },
+          { headers: { 'Content-Type': 'application/json' } }
         );
 
         const newAccess = res.data.access;
@@ -71,7 +96,6 @@ api.interceptors.response.use(
         await SecureStore.deleteItemAsync('access_token');
         await SecureStore.deleteItemAsync('refresh_token');
 
-        // Appelle le handler au lieu d'importer router directement
         if (onUnauthorized) onUnauthorized();
 
         return Promise.reject(err);

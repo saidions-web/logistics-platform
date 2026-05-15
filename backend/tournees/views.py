@@ -140,10 +140,10 @@ class TourneeDetailView(APIView):
 
     def patch(self, request, pk):
         """
-        CORRECTION : seul le livreur peut modifier le statut d'une tournée.
-        L'entreprise ne peut plus démarrer ni terminer une tournée.
+        Seul le livreur peut modifier le statut d'une tournée.
+        ✅ RÈGLE : le livreur ne peut pas terminer une tournée si toutes
+        les commandes ne sont pas livrées ou retournées.
         """
-        # ✅ SEUL LE LIVREUR PEUT PATCHER
         if request.user.role != 'livreur':
             return Response(
                 {'detail': 'Seul le livreur assigné peut démarrer ou terminer une tournée.'},
@@ -166,9 +166,36 @@ class TourneeDetailView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)
 
+        nouveau_statut = request.data.get('statut')
+
+        # ✅ VÉRIFICATION : avant de terminer, toutes les commandes doivent
+        # être livrées ou retournées
+        if nouveau_statut == StatutTournee.TERMINEE:
+            statuts_finals = [StatutCommande.LIVREE, StatutCommande.RETOURNEE]
+
+            commandes_en_cours = tournee.affectations.exclude(
+                commande__statut__in=statuts_finals
+            ).select_related('commande')
+
+            if commandes_en_cours.exists():
+                refs = ', '.join(
+                    a.commande.reference for a in commandes_en_cours
+                )
+                nb = commandes_en_cours.count()
+                return Response(
+                    {
+                        'detail': (
+                            f'Impossible de terminer la tournée : '
+                            f'{nb} commande(s) non traitée(s) — {refs}. '
+                            f'Chaque commande doit être livrée ou retournée.'
+                        )
+                    },
+                    status=400
+                )
+
         tournee = serializer.save()
 
-        # ✅ CORRECTION B3 : démarrage → EN_TRANSIT (pas PRISE_CHARGE)
+        # Démarrage → commandes passent en EN_TRANSIT
         if tournee.statut == StatutTournee.EN_COURS and tournee.livreur:
             tournee.livreur.statut = 'en_tournee'
             tournee.livreur.save()
@@ -177,10 +204,10 @@ class TourneeDetailView(APIView):
                 commande = affectation.commande
                 if commande.statut in [
                     StatutCommande.EN_ATTENTE,
-                    StatutCommande.PRISE_CHARGE  # couvre les deux cas possibles
+                    StatutCommande.PRISE_CHARGE
                 ]:
                     ancien = commande.statut
-                    commande.statut = StatutCommande.EN_TRANSIT  # ← CORRIGÉ
+                    commande.statut = StatutCommande.EN_TRANSIT
                     commande.save()
                     HistoriqueStatut.objects.create(
                         commande=commande,
@@ -189,23 +216,9 @@ class TourneeDetailView(APIView):
                         commentaire=f"Tournée {tournee.reference} démarrée par le livreur",
                     )
 
-        # Fin de tournée — inchangé
+        # Fin de tournée → livreur redevient disponible
+        # (les commandes sont déjà toutes livrées/retournées grâce à la vérification ci-dessus)
         if tournee.statut == StatutTournee.TERMINEE:
-            for affectation in tournee.affectations.select_related('commande').all():
-                commande = affectation.commande
-                if commande.statut in [
-                    StatutCommande.EN_TRANSIT,
-                    StatutCommande.PRISE_CHARGE
-                ]:
-                    ancien = commande.statut
-                    commande.statut = StatutCommande.LIVREE
-                    commande.save()
-                    HistoriqueStatut.objects.create(
-                        commande=commande,
-                        ancien_statut=ancien,
-                        nouveau_statut=StatutCommande.LIVREE,
-                        commentaire=f"Tournée {tournee.reference} terminée",
-                    )
             if tournee.livreur:
                 tournee.livreur.statut = 'disponible'
                 tournee.livreur.save()
